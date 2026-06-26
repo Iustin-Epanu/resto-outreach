@@ -1,0 +1,64 @@
+name: Restaurant outreach
+
+# Scrapes restaurants per city via Google Places, imports them as hidden venues
+# in Supabase (a DB trigger mints a go-live link), and emails each one in
+# Romanian via Brevo. Fully automatic. Capped per run to control API cost +
+# sending volume.
+#
+# Required repo secrets (Settings -> Secrets and variables -> Actions):
+#   GOOGLE_MAPS_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY,
+#   BREVO_API_KEY, BREVO_SENDER_EMAIL, PUBLIC_BASE_URL
+# Optional: BREVO_UNSUBSCRIBE_URL
+
+on:
+  workflow_dispatch:
+    inputs:
+      cities:
+        description: "Comma-separated city slugs (cluj-napoca,bucuresti,iasi,botosani)"
+        default: "cluj-napoca"
+      max:
+        description: "Max new venues to import + email this run"
+        default: "30"
+      dry_run:
+        description: "true = discover only, no DB write / no send"
+        default: "false"
+  schedule:
+    - cron: "0 8 * * 1" # Mondays 08:00 UTC
+
+# Never let two runs write/email concurrently.
+concurrency:
+  group: restaurant-outreach
+  cancel-in-progress: false
+
+jobs:
+  outreach:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run outreach pipeline
+        env:
+          GOOGLE_MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          BREVO_API_KEY: ${{ secrets.BREVO_API_KEY }}
+          BREVO_SENDER_EMAIL: ${{ secrets.BREVO_SENDER_EMAIL }}
+          BREVO_SENDER_NAME: "Resto"
+          BREVO_UNSUBSCRIBE_URL: ${{ secrets.BREVO_UNSUBSCRIBE_URL }}
+          PUBLIC_BASE_URL: ${{ secrets.PUBLIC_BASE_URL }}
+          CITIES: ${{ github.event.inputs.cities || 'cluj-napoca,bucuresti,iasi,botosani' }}
+          MAX_VENUES: ${{ github.event.inputs.max || '30' }}
+          DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+        run: |
+          DRY=""
+          if [ "$DRY_RUN" = "true" ]; then DRY="--dry-run"; fi
+          python run.py --cities "$CITIES" --max "$MAX_VENUES" $DRY
