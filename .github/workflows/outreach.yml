@@ -17,13 +17,13 @@ on:
         description: "Comma-separated city slugs (cluj-napoca,bucuresti,iasi,botosani)"
         default: "cluj-napoca"
       max:
-        description: "Max new venues to import + email this run"
-        default: "30"
+        description: "Target new venues to import + email this run (daily send cap)"
+        default: "300"
       dry_run:
         description: "true = discover only, no DB write / no send"
         default: "false"
   schedule:
-    - cron: "0 8 * * 1" # Mondays 08:00 UTC
+    - cron: "0 7 * * *" # every day 07:00 UTC (~10:00 RO winter / 11:00 summer)
 
 # Never let two runs write/email concurrently.
 concurrency:
@@ -58,7 +58,7 @@ jobs:
           BREVO_UNSUBSCRIBE_URL: ${{ secrets.BREVO_UNSUBSCRIBE_URL }}
           PUBLIC_BASE_URL: ${{ secrets.PUBLIC_BASE_URL }}
           CITIES: ${{ github.event.inputs.cities || 'cluj-napoca,bucuresti,iasi,botosani' }}
-          MAX_VENUES: ${{ github.event.inputs.max || '30' }}
+          MAX_VENUES: ${{ github.event.inputs.max || '300' }}
           DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
         run: |
           DRY=""

@@ -35,25 +35,50 @@ from taxonomy_map import map_taxonomy
 from inference import bilingual_copy, fallback_image_urls
 from translate import translate
 
-# City slug -> (display name, search query). Slugs MUST match the web app's
+# City slug -> (display name, Google search term). Slugs MUST match the web app's
 # src/lib/cities.ts (the consumer app gates browsing on isCityId), so we only
 # ship supported ones. Add a city there first before targeting it here.
 CITY_CONFIG = {
-    "cluj-napoca": ("Cluj-Napoca", "restaurants in Cluj-Napoca, Romania"),
-    "bucuresti":   ("București",   "restaurants in Bucharest, Romania"),
-    "iasi":        ("Iași",        "restaurants in Iasi, Romania"),
-    "botosani":    ("Botoșani",    "restaurants in Botosani, Romania"),
+    "cluj-napoca": ("Cluj-Napoca", "Cluj-Napoca"),
+    "bucuresti":   ("București",   "Bucharest"),
+    "iasi":        ("Iași",        "Iasi"),
+    "botosani":    ("Botoșani",    "Botosani"),
 }
+
+# Google's Places searchText caps each query at ~60 results, so a single
+# "restaurants in X" query can never feed a 300/day target. We fan out across
+# many angles (cuisine, type, meal) per city; results are deduped by place id
+# within the run, so overlap between angles is harmless. More angles = more
+# unique candidates = more emails actually sent.
+SEARCH_VARIANTS = [
+    "restaurants in {city}, Romania",
+    "best restaurants in {city}, Romania",
+    "traditional Romanian restaurant in {city}",
+    "pizza in {city}, Romania",
+    "italian restaurant in {city}, Romania",
+    "asian restaurant in {city}, Romania",
+    "fast food in {city}, Romania",
+    "cafe and brunch in {city}, Romania",
+    "bistro in {city}, Romania",
+    "pub and bar food in {city}, Romania",
+    "fine dining in {city}, Romania",
+    "burger in {city}, Romania",
+]
+
+
+def build_queries(city_term: str):
+    """All search angles for a city, each capped at ~60 results by Google."""
+    return [v.format(city=city_term) for v in SEARCH_VARIANTS]
 
 
 def parse_args():
     p = argparse.ArgumentParser(description="Resto restaurant outreach pipeline")
-    p.add_argument("--cities", default="cluj-napoca",
+    p.add_argument("--cities", default="cluj-napoca,bucuresti,iasi,botosani",
                    help="comma-separated city slugs (must match web src/lib/cities.ts)")
-    p.add_argument("--max", type=int, default=30,
-                   help="max NEW venues to import+email per run (across all cities)")
+    p.add_argument("--max", type=int, default=300,
+                   help="target NEW venues to import+email per run (the daily send cap)")
     p.add_argument("--per-city-search", type=int, default=60,
-                   help="max search results to scan per city")
+                   help="max results to scan per search query (Google caps this at ~60)")
     p.add_argument("--dry-run", action="store_true",
                    help="discover + crawl + map only; no DB write, no email send")
     return p.parse_args()
@@ -170,107 +195,125 @@ def main() -> int:
 
     stats = {"discovered": 0, "skipped_dup": 0, "no_email": 0,
              "skipped_emailed": 0, "inserted": 0, "sent": 0, "failed": 0}
-    remaining = args.max
+    target = args.max
+    remaining = target
+    seen: set[str] = set()  # place ids handled this run (dedup across query angles)
+    print(f"TARGET: up to {target} emails this run · cities={cities}")
 
     for city_slug in cities:
         if remaining <= 0:
             break
-        city_name, query = CITY_CONFIG[city_slug]
-        print(f"\n=== {city_name} ({city_slug}) — searching ===")
-        try:
-            candidates = places.search_text(query, max_results=args.per_city_search)
-        except places.PlacesError as e:
-            print(f"  ! search failed: {e}")
-            continue
-        print(f"  {len(candidates)} candidates")
+        city_name, city_term = CITY_CONFIG[city_slug]
+        queries = build_queries(city_term)
+        print(f"\n=== {city_name} ({city_slug}) — {len(queries)} search angles, "
+              f"{remaining} of {target} still to send ===")
 
-        for cand in candidates:
+        for query in queries:
             if remaining <= 0:
                 break
-            place_id = cand.get("id")
-            if not place_id:
-                continue
-            stats["discovered"] += 1
-
-            # 3. dedup on place id (skip the details call entirely when known)
-            if store and store.place_exists(place_id):
-                stats["skipped_dup"] += 1
-                continue
-
             try:
-                place = places.details(place_id)
+                candidates = places.search_text(query, max_results=args.per_city_search)
             except places.PlacesError as e:
-                print(f"  ! details failed for {place_id}: {e}")
+                print(f"  ! search failed [{query}]: {e}")
                 continue
-            if not place:
-                continue
-            name = (place.get("displayName") or {}).get("text") or place_id
-            if place.get("businessStatus") not in (None, "OPERATIONAL"):
-                continue
+            fresh = [c.get("id") for c in candidates if c.get("id") and c["id"] not in seen]
+            print(f"  [{query}] {len(candidates)} found, {len(fresh)} new "
+                  f"(remaining {remaining})")
 
-            # 4. email is required
-            email = email_crawler.find(place.get("websiteUri"))
-            if not email:
-                stats["no_email"] += 1
-                print(f"  - {name}: no email (skip)")
-                if store:
-                    store.log_outreach(email="unknown@" + (place.get("websiteUri") or "no-site"),
-                                       status="no_email", city=city_slug)
-                continue
+            for place_id in fresh:
+                if remaining <= 0:
+                    break
+                if place_id in seen:
+                    continue
+                seen.add(place_id)
+                stats["discovered"] += 1
 
-            # 5. dedup on already-emailed
-            if store and store.email_already_contacted(email):
-                stats["skipped_emailed"] += 1
-                print(f"  - {name}: {email} already contacted (skip)")
-                continue
+                # 3. dedup on place id (skip the details call entirely when known)
+                if store and store.place_exists(place_id):
+                    stats["skipped_dup"] += 1
+                    continue
 
-            payload = build_payload(place, city_slug, city_name, email,
-                                    do_translate=not args.dry_run)
-            go_live_url = None
+                try:
+                    place = places.details(place_id)
+                except places.PlacesError as e:
+                    print(f"  ! details failed for {place_id}: {e}")
+                    continue
+                if not place:
+                    continue
+                name = (place.get("displayName") or {}).get("text") or place_id
+                if place.get("businessStatus") not in (None, "OPERATIONAL"):
+                    continue
 
-            if args.dry_run:
-                print(f"  ~ DRY {name} <{email}> [{','.join(payload['cuisine_slugs'])}"
-                      f" | {','.join(payload['tag_slugs'])}] phone={payload['phone']}")
+                # 4. email is required
+                email = email_crawler.find(place.get("websiteUri"))
+                if not email:
+                    stats["no_email"] += 1
+                    print(f"  - {name}: no email (skip)")
+                    if store:
+                        store.log_outreach(email="unknown@" + (place.get("websiteUri") or "no-site"),
+                                           status="no_email", city=city_slug)
+                    continue
+
+                # 5. dedup on already-emailed
+                if store and store.email_already_contacted(email):
+                    stats["skipped_emailed"] += 1
+                    print(f"  - {name}: {email} already contacted (skip)")
+                    continue
+
+                payload = build_payload(place, city_slug, city_name, email,
+                                        do_translate=not args.dry_run)
+                go_live_url = None
+
+                if args.dry_run:
+                    print(f"  ~ DRY {name} <{email}> [{','.join(payload['cuisine_slugs'])}"
+                          f" | {','.join(payload['tag_slugs'])}] phone={payload['phone']}")
+                    remaining -= 1
+                    continue
+
+                # 7-8. insert (hidden, with fallback hero) — trigger mints the
+                #      go-live link — then upgrade to real Google photos if any.
+                try:
+                    rid = store.insert_restaurant(payload)
+                    attach_images(store, rid, place)
+                    stats["inserted"] += 1
+                    token = store.get_golive_token(rid)
+                    go_live_url = f"{public_base}/go/{token}" if token else None
+                except Exception as e:  # noqa: BLE001
+                    print(f"  ! insert failed for {name}: {e}")
+                    store.log_outreach(email=email, status="failed",
+                                       error=str(e)[:300], city=city_slug)
+                    continue
+
+                # 10. send
+                if not go_live_url:
+                    store.log_outreach(email=email, status="failed", restaurant_id=rid,
+                                       error="no go-live token minted", city=city_slug)
+                    continue
+                try:
+                    import brevo
+                    msg_id = brevo.send_ro(email, payload["name"], go_live_url)
+                    store.log_outreach(email=email, status="sent", restaurant_id=rid,
+                                       brevo_message_id=msg_id, city=city_slug)
+                    stats["sent"] += 1
+                    print(f"  ✓ {name} <{email}> imported + emailed  ({stats['sent']}/{target})")
+                except Exception as e:  # noqa: BLE001
+                    stats["failed"] += 1
+                    store.log_outreach(email=email, status="failed", restaurant_id=rid,
+                                       error=str(e)[:300], city=city_slug)
+                    print(f"  ! send failed for {name}: {e}")
+
                 remaining -= 1
-                continue
-
-            # 7-8. insert (hidden, with fallback hero) — trigger mints the
-            #      go-live link — then upgrade to real Google photos if any.
-            try:
-                rid = store.insert_restaurant(payload)
-                attach_images(store, rid, place)
-                stats["inserted"] += 1
-                token = store.get_golive_token(rid)
-                go_live_url = f"{public_base}/go/{token}" if token else None
-            except Exception as e:  # noqa: BLE001
-                print(f"  ! insert failed for {name}: {e}")
-                store.log_outreach(email=email, status="failed",
-                                   error=str(e)[:300], city=city_slug)
-                continue
-
-            # 10. send
-            if not go_live_url:
-                store.log_outreach(email=email, status="failed", restaurant_id=rid,
-                                   error="no go-live token minted", city=city_slug)
-                continue
-            try:
-                import brevo
-                msg_id = brevo.send_ro(email, payload["name"], go_live_url)
-                store.log_outreach(email=email, status="sent", restaurant_id=rid,
-                                   brevo_message_id=msg_id, city=city_slug)
-                stats["sent"] += 1
-                print(f"  ✓ {name} <{email}> imported + emailed")
-            except Exception as e:  # noqa: BLE001
-                stats["failed"] += 1
-                store.log_outreach(email=email, status="failed", restaurant_id=rid,
-                                   error=str(e)[:300], city=city_slug)
-                print(f"  ! send failed for {name}: {e}")
-
-            remaining -= 1
 
     print("\n=== summary ===")
     for k, v in stats.items():
         print(f"  {k:16}: {v}")
+    print(f"\n  TARGET {target} — SENT {stats['sent']}")
+    if stats["sent"] < target:
+        print(f"  NOTE: reached {stats['sent']}/{target}. Out of fresh restaurants with "
+              f"emails this run (no_email={stats['no_email']}, "
+              f"already_contacted={stats['skipped_emailed']}, "
+              f"already_imported={stats['skipped_dup']}). Add cities or search angles "
+              f"to push closer to {target}.")
     return 0
 
 
