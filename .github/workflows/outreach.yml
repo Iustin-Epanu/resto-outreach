@@ -25,6 +25,9 @@ on:
       test_email:
         description: "TEST MODE: redirect ALL sends here (real venue + link created, no restaurant emailed). Blank = normal run."
         default: ""
+      selftest:
+        description: "true = only run the translation self-test (no scrape / DB / email)"
+        default: "false"
   schedule:
     - cron: "0 8 * * 1" # Mondays 08:00 UTC
 
@@ -65,7 +68,9 @@ jobs:
           MAX_VENUES: ${{ github.event.inputs.max || '30' }}
           DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
           TEST_EMAIL: ${{ github.event.inputs.test_email || '' }}
+          SELFTEST: ${{ github.event.inputs.selftest || 'false' }}
         run: |
+          if [ "$SELFTEST" = "true" ]; then python run.py --selftest-translate; exit $?; fi
           DRY=""
           if [ "$DRY_RUN" = "true" ]; then DRY="--dry-run"; fi
           TEST=""

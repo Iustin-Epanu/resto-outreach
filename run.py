@@ -59,6 +59,9 @@ def parse_args():
     p.add_argument("--test-email", default=None,
                    help="TEST MODE: redirect every send to this address. Real venue + "
                         "go-live link are still created, but NO real restaurant is emailed.")
+    p.add_argument("--selftest-translate", action="store_true",
+                   help="Only check that the Cloud Translation API works with the "
+                        "configured key, then exit. No scrape / DB / email.")
     return p.parse_args()
 
 
@@ -155,6 +158,18 @@ def attach_images(store, restaurant_id: str, place: dict) -> bool:
 
 def main() -> int:
     args = parse_args()
+
+    if args.selftest_translate:
+        ro_src = "Bună ziua, acesta este un test de traducere pentru Resto."
+        en_src = "This is a translation self-test for Resto."
+        ro_to_en = translate(ro_src, target="en", source="ro")
+        en_to_ro = translate(en_src, target="ro", source="en")
+        print(f"  RO->EN: {ro_to_en!r}")
+        print(f"  EN->RO: {en_to_ro!r}")
+        ok = bool(ro_to_en and en_to_ro)
+        print("  translate OK" if ok else "  translate FAILED (check key / Translation API)")
+        return 0 if ok else 1
+
     cities = [c.strip() for c in args.cities.split(",") if c.strip()]
     unknown = [c for c in cities if c not in CITY_CONFIG]
     if unknown:
