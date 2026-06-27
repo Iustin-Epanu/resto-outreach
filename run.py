@@ -66,9 +66,48 @@ SEARCH_VARIANTS = [
 ]
 
 
-def build_queries(city_term: str):
-    """All search angles for a city, each capped at ~60 results by Google."""
-    return [v.format(city=city_term) for v in SEARCH_VARIANTS]
+# Neighborhood-level expansion. Each query gets its own ~60-result budget from
+# Google, so scoping searches to neighborhoods/sectors digs out the long tail of
+# venues that the city-wide top-60 never surfaces — the main lever for sustained
+# daily volume. Keep these in the city's *search* spelling (matches CITY_CONFIG).
+NEIGHBORHOODS = {
+    "cluj-napoca": [
+        "Centru", "Mănăștur", "Mărăști", "Gheorgheni", "Grigorescu", "Zorilor",
+        "Andrei Mureșanu", "Bună Ziua", "Iris", "Plopilor", "Gruia", "Someșeni",
+    ],
+    "bucuresti": [
+        "Sector 1", "Sector 2", "Sector 3", "Sector 4", "Sector 5", "Sector 6",
+        "Centrul Vechi", "Floreasca", "Dorobanți", "Aviatorilor", "Herăstrău",
+        "Cotroceni", "Unirii", "Universitate", "Victoriei", "Băneasa", "Pipera",
+        "Militari", "Drumul Taberei", "Berceni", "Titan", "Crângași",
+    ],
+    "iasi": [
+        "Centru", "Copou", "Tătărași", "Păcurari", "Nicolina", "Alexandru cel Bun",
+        "Galata", "Podu Roș", "Tudor Vladimirescu", "Canta", "Dacia", "Bucium",
+    ],
+    "botosani": [
+        "Centru", "Calea Națională", "Bucovina", "Primăverii", "Grivița",
+        "Parcul Tineretului", "Pacea",
+    ],
+}
+
+NEIGHBORHOOD_VARIANTS = [
+    "restaurants in {hood}, {city}, Romania",
+    "cafe bistro bar in {hood}, {city}, Romania",
+]
+
+
+def build_queries(city_slug: str, city_term: str):
+    """
+    City-wide angles first, then per-neighborhood angles. Each query is capped at
+    ~60 results by Google, so more (deduped) queries = a larger reachable pool.
+    The run stops once the target is hit, so the deeper neighborhood queries only
+    execute when the broad ones didn't already fill the quota.
+    """
+    queries = [v.format(city=city_term) for v in SEARCH_VARIANTS]
+    for hood in NEIGHBORHOODS.get(city_slug, []):
+        queries += [v.format(hood=hood, city=city_term) for v in NEIGHBORHOOD_VARIANTS]
+    return queries
 
 
 def parse_args():
@@ -204,7 +243,7 @@ def main() -> int:
         if remaining <= 0:
             break
         city_name, city_term = CITY_CONFIG[city_slug]
-        queries = build_queries(city_term)
+        queries = build_queries(city_slug, city_term)
         print(f"\n=== {city_name} ({city_slug}) — {len(queries)} search angles, "
               f"{remaining} of {target} still to send ===")
 
