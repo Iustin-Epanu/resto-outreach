@@ -76,6 +76,7 @@ def apply_google_description(place: dict, copy: dict, do_translate: bool = True)
     es = place.get("editorialSummary") or {}
     summary = es.get("text")
     if not summary:
+        print("    · no Google description — using generic copy")
         return
     lang = (es.get("languageCode") or "").lower()
     if lang.startswith("ro"):
@@ -83,11 +84,13 @@ def apply_google_description(place: dict, copy: dict, do_translate: bool = True)
         en = translate(summary, target="en", source="ro") if do_translate else None
         if en:
             copy["description"] = en
+        print(f"    · Google description [ro] -> EN translated: {bool(en)}")
     else:
         copy["description"] = summary
         ro = translate(summary, target="ro", source=lang or None) if do_translate else None
         if ro:
             copy["description_ro"] = ro
+        print(f"    · Google description [{lang or '?'}] -> RO translated: {bool(ro)}")
 
 
 def build_payload(place: dict, city_slug: str, city_name: str, email: str,
