@@ -33,6 +33,7 @@ import places
 import email_crawler
 from taxonomy_map import map_taxonomy
 from inference import bilingual_copy, fallback_image_urls
+from translate import translate
 
 # City slug -> (display name, search query). Slugs MUST match the web app's
 # src/lib/cities.ts (the consumer app gates browsing on isCityId), so we only
@@ -61,7 +62,36 @@ def parse_args():
     return p.parse_args()
 
 
-def build_payload(place: dict, city_slug: str, city_name: str, email: str):
+def apply_google_description(place: dict, copy: dict, do_translate: bool = True) -> None:
+    """
+    Mirror the venue's real Google Maps description across RO + EN, in place.
+
+    We request details in Romanian (places.details language_code='ro'), so when
+    Google has a Romanian editorialSummary it lands in description_ro and we
+    translate it to EN. When Google only has it in another language (usually EN),
+    we keep that as description and translate it into RO. Either way both fields
+    carry the *real* description — RO is the one shown to restaurants. If there's
+    no summary, or translation is unavailable, the generic copy stays as fallback.
+    """
+    es = place.get("editorialSummary") or {}
+    summary = es.get("text")
+    if not summary:
+        return
+    lang = (es.get("languageCode") or "").lower()
+    if lang.startswith("ro"):
+        copy["description_ro"] = summary
+        en = translate(summary, target="en", source="ro") if do_translate else None
+        if en:
+            copy["description"] = en
+    else:
+        copy["description"] = summary
+        ro = translate(summary, target="ro", source=lang or None) if do_translate else None
+        if ro:
+            copy["description_ro"] = ro
+
+
+def build_payload(place: dict, city_slug: str, city_name: str, email: str,
+                  do_translate: bool = True):
     """Assemble the restaurants INSERT payload (visible=false) from a place."""
     name = (place.get("displayName") or {}).get("text") or "Restaurant"
     types = place.get("types") or []
@@ -70,9 +100,8 @@ def build_payload(place: dict, city_slug: str, city_name: str, email: str):
     opens_at, closes_at = places.opening_hours(place)
     hood = places.neighborhood(place) or city_name
 
-    summary = (place.get("editorialSummary") or {}).get("text")
-    if summary:  # prefer Google's own description when present
-        copy["description"] = summary
+    # Prefer Google's own description (RO-first), falling back to generic copy.
+    apply_google_description(place, copy, do_translate=do_translate)
 
     # image_url is NOT NULL — seed it with the cuisine fallback so the insert is
     # always valid; attach_images() upgrades it to real Google photos after.
@@ -195,7 +224,8 @@ def main() -> int:
                 print(f"  - {name}: {email} already contacted (skip)")
                 continue
 
-            payload = build_payload(place, city_slug, city_name, email)
+            payload = build_payload(place, city_slug, city_name, email,
+                                    do_translate=not args.dry_run)
             go_live_url = None
 
             if args.dry_run:
