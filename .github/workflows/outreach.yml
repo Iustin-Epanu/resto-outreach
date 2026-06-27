@@ -8,7 +8,7 @@ name: Restaurant outreach
 # Required repo secrets (Settings -> Secrets and variables -> Actions):
 #   GOOGLE_MAPS_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY,
 #   BREVO_API_KEY, BREVO_SENDER_EMAIL, PUBLIC_BASE_URL
-# Optional: BREVO_UNSUBSCRIBE_URL
+# Optional: BREVO_UNSUBSCRIBE_URL, GOOGLE_TRANSLATE_API_KEY
 
 on:
   workflow_dispatch:
@@ -48,6 +48,8 @@ jobs:
       - name: Run outreach pipeline
         env:
           GOOGLE_MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }}
+          # Optional: dedicated Cloud Translation key; falls back to the Maps key.
+          GOOGLE_TRANSLATE_API_KEY: ${{ secrets.GOOGLE_TRANSLATE_API_KEY }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           BREVO_API_KEY: ${{ secrets.BREVO_API_KEY }}

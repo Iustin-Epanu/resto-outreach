@@ -82,14 +82,21 @@ def search_text(query: str, max_results: int = 60, page_size: int = 20,
     return out[:max_results]
 
 
-def details(place_id: str):
-    """Fetch full details for one place id. Returns the place dict or None."""
+def details(place_id: str, language_code: str = "ro"):
+    """
+    Fetch full details for one place id. Returns the place dict or None.
+
+    `language_code` localizes Google's text fields (notably editorialSummary) —
+    we ask for Romanian so the venue's own description comes back in RO when
+    Google has it. The response still carries editorialSummary.languageCode so
+    the caller knows which language it actually got.
+    """
     headers = {
         "X-Goog-Api-Key": _api_key(),
         "X-Goog-FieldMask": DETAILS_FIELDS,
     }
     url = DETAILS_URL.format(place_id=place_id)
-    resp = requests.get(url, headers=headers, timeout=30)
+    resp = requests.get(url, headers=headers, params={"languageCode": language_code}, timeout=30)
     if resp.status_code == 404:
         return None
     if resp.status_code != 200:
