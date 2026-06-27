@@ -1,63 +1,126 @@
 <!--
-  Romanian outreach email — PLACEHOLDER COPY (to be finalized later).
+  Subject recomandat: {{venue_name}}: am pregătit pagina ta — e ascunsă până o confirmi tu
+  Romanian outreach email — v2 (rewritten for conversion)
+  Framework: PAS + reciprocitate + pierdere evitată + ROI specific
   Placeholders: {{venue_name}}, {{go_live_url}}, {{sender_name}}, {{unsubscribe_url}}
-  Keep it short; the single call-to-action is the go-live link.
 -->
 <!DOCTYPE html>
 <html lang="ro">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Resto — pagina ta te așteaptă</title>
   </head>
   <body style="margin:0;padding:0;background:#faf7f2;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#1a1a1a;">
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#faf7f2;padding:24px 0;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#faf7f2;padding:32px 0;">
       <tr>
         <td align="center">
-          <table role="presentation" width="520" cellpadding="0" cellspacing="0" style="max-width:520px;background:#ffffff;border-radius:16px;padding:32px;border:1px solid #eee;">
+
+          <!-- Card principal -->
+          <table role="presentation" width="540" cellpadding="0" cellspacing="0" style="max-width:540px;background:#ffffff;border-radius:16px;overflow:hidden;border:1px solid #eee;">
+
+            <!-- Header brand -->
             <tr>
-              <td style="font-size:20px;font-weight:700;padding-bottom:8px;">
-                Salut, {{venue_name}} 👋
+              <td style="background:#e23b2e;padding:18px 32px;">
+                <span style="font-size:20px;font-weight:800;color:#ffffff;letter-spacing:-0.5px;">Resto</span>
+                <span style="font-size:13px;color:rgba(255,255,255,0.75);margin-left:8px;">pentru restaurante</span>
               </td>
             </tr>
+
+            <!-- Body -->
             <tr>
-              <td style="font-size:15px;line-height:1.6;color:#333;padding-bottom:16px;">
-                Suntem <strong>Resto</strong> — o aplicație nouă prin care clienții din
-                orașul tău văd în timp real care restaurante sunt deschise și au mese
-                libere acum. Te-am adăugat deja în platformă, dar pagina ta este încă
-                ascunsă până o confirmi tu.
+              <td style="padding:32px 32px 0 32px;">
+
+                <!-- Greeting -->
+                <p style="margin:0 0 20px 0;font-size:22px;font-weight:700;color:#1a1a1a;">
+                  Salut, {{venue_name}} 👋
+                </p>
+
+                <!-- Hook — PAS: Problema -->
+                <p style="margin:0 0 16px 0;font-size:15px;line-height:1.65;color:#333;">
+                  O masă goală te costă la fel ca una plină — chiria, personalul și curentul
+                  merg oricum. Singura diferență: nu câștigi nimic din ea.
+                </p>
+
+                <!-- Soluția -->
+                <p style="margin:0 0 16px 0;font-size:15px;line-height:1.65;color:#333;">
+                  Suntem <strong>Resto</strong> — o aplicație prin care utilizatorii văd
+                  în timp real câte mese ai disponibile, ce reduceri oferi azi și ce se
+                  întâmplă diseară la tine(evenimente, etc.). 
+                  Chestia e că nu îți punem utilizatorii să facă rezervări pentru weekendul viitor.
+                  <strong>Îi chemăm acum, la ușa ta.</strong>
+                </p>
+
+                <!-- Reciprocitate — pagina e deja gata -->
+                <p style="margin:0 0 24px 0;font-size:15px;line-height:1.65;color:#333;">
+                  Am creat deja pagina ta pe platformă. E ascunsă deocamdată —
+                  se activează <em>doar dacă vrei tu</em>.
+
+                  Altfel, restaurantul tău va apărea pe platforma noastra, gratuit.
+
+                  După ce iți activezi pagina, putem vorbi despre următoarea etapă.
+                  Doar răspunde-ne la mail și îți vom prezenta toată oferta.
+                </p>
+
               </td>
             </tr>
+
+            <!-- Math callout box -->
             <tr>
-              <td style="font-size:15px;line-height:1.6;color:#333;padding-bottom:24px;">
-                Apasă butonul de mai jos ca să-ți activezi pagina și să o vezi live.
-                Durează 10 secunde și nu te costă nimic.
+              <td style="padding:0 32px 24px 32px;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+                       style="background:#fff8f2;border-radius:12px;border-left:4px solid #e23b2e;padding:0;">
+                  <tr>
+                    <td style="padding:16px 20px;">
+                      <p style="margin:0;font-size:14px;line-height:1.6;color:#444;">
+                        Fiecare masă pe care ți-o câștigăm ar fi fost una pierdută.<br />
+                        Pe lângă asta, locația ta va fi mai populară și mai ușor de găsit.<br />
+                        Dacă folosești ialoc.ro, putem vorbi și cu ce ne diferențiem față de ei(și ce facem mai bine).<br />
+                        <strong>Primele 3 luni sunt complet gratuite.</strong>
+                      </p>
+                    </td>
+                  </tr>
+                </table>
               </td>
             </tr>
+
+            <!-- CTA -->
             <tr>
-              <td align="center" style="padding-bottom:24px;">
+              <td align="center" style="padding:0 32px 32px 32px;">
                 <a href="{{go_live_url}}"
-                   style="display:inline-block;background:#e23b2e;color:#ffffff;text-decoration:none;font-weight:600;font-size:16px;padding:14px 28px;border-radius:12px;">
-                  Activează pagina restaurantului
+                   style="display:inline-block;background:#e23b2e;color:#ffffff;text-decoration:none;font-weight:700;font-size:16px;padding:15px 32px;border-radius:12px;letter-spacing:-0.2px;">
+                  Activează pagina restaurantului &rarr;
                 </a>
+                <p style="margin:12px 0 0 0;font-size:13px;color:#aaa;">
+                  Durează 10 secunde · Gratuit · Fără contract
+                </p>
               </td>
             </tr>
+
+            <!-- Divider + fallback link -->
             <tr>
-              <td style="font-size:13px;line-height:1.5;color:#888;border-top:1px solid #eee;padding-top:16px;">
-                Dacă linkul nu funcționează, copiază-l în browser:<br />
-                <a href="{{go_live_url}}" style="color:#888;">{{go_live_url}}</a>
+              <td style="padding:0 32px 24px 32px;border-top:1px solid #f0f0f0;">
+                <p style="margin:16px 0 0 0;font-size:12px;line-height:1.6;color:#bbb;">
+                  Dacă butonul nu funcționează, copiază linkul în browser:<br />
+                  <a href="{{go_live_url}}" style="color:#bbb;word-break:break-all;">{{go_live_url}}</a>
+                </p>
               </td>
             </tr>
+
           </table>
-          <table role="presentation" width="520" cellpadding="0" cellspacing="0" style="max-width:520px;padding:16px 32px;">
+
+          <!-- Footer -->
+          <table role="presentation" width="540" cellpadding="0" cellspacing="0" style="max-width:540px;padding:16px 32px;">
             <tr>
-              <td style="font-size:11px;line-height:1.5;color:#aaa;text-align:center;">
+              <td style="font-size:11px;line-height:1.6;color:#bbb;text-align:center;">
                 {{sender_name}} · Cluj-Napoca, România<br />
-                Ai primit acest email pentru că restaurantul tău apare public pe Google Maps.
+                Ai primit acest email pentru că restaurantul tău apare public pe Google Maps.<br />
                 Dacă nu dorești să te mai contactăm,
-                <a href="{{unsubscribe_url}}" style="color:#aaa;">dezabonează-te aici</a>.
+                <a href="{{unsubscribe_url}}" style="color:#bbb;">dezabonează-te aici</a>.
               </td>
             </tr>
           </table>
+
         </td>
       </tr>
     </table>

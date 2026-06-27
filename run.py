@@ -55,6 +55,9 @@ def parse_args():
                    help="max search results to scan per city")
     p.add_argument("--dry-run", action="store_true",
                    help="discover + crawl + map only; no DB write, no email send")
+    p.add_argument("--test-email", default=None,
+                   help="TEST MODE: redirect every send to this address. Real venue + "
+                        "go-live link are still created, but NO real restaurant is emailed.")
     return p.parse_args()
 
 
@@ -222,11 +225,17 @@ def main() -> int:
                 continue
             try:
                 import brevo
-                msg_id = brevo.send_ro(email, payload["name"], go_live_url)
-                store.log_outreach(email=email, status="sent", restaurant_id=rid,
+                # In test mode the email goes to the tester, not the restaurant,
+                # so we can verify the full flow without contacting real venues.
+                recipient = args.test_email or email
+                msg_id = brevo.send_ro(recipient, payload["name"], go_live_url)
+                # Log against the recipient that was actually emailed so a test run
+                # never marks a real restaurant as already-contacted.
+                store.log_outreach(email=recipient, status="sent", restaurant_id=rid,
                                    brevo_message_id=msg_id, city=city_slug)
                 stats["sent"] += 1
-                print(f"  ✓ {name} <{email}> imported + emailed")
+                tag = " [TEST]" if args.test_email else ""
+                print(f"  ✓ {name} <{recipient}>{tag} imported + emailed (msg {msg_id})")
             except Exception as e:  # noqa: BLE001
                 stats["failed"] += 1
                 store.log_outreach(email=email, status="failed", restaurant_id=rid,
