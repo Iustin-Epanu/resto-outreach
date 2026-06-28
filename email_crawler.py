@@ -34,10 +34,10 @@ CONTACT_PATHS = ["", "contact", "contacte", "contact-us", "kontakt",
 
 # Domains/substrings that are never a real contact address.
 JUNK_DOMAINS = (
-    "sentry.io", "sentry-cdn", "wixpress.com", "example.com", "example.org",
-    "domain.com", "email.com", "yourdomain", "sentry.wixpress", "schema.org",
-    "googleapis.com", "gstatic.com", "cloudflare", "w3.org", "jquery",
-    "fontawesome", "googletagmanager", "google-analytics",
+    "sentry.io", "sentry-cdn", "getsentry.com", "wixpress.com", "example.com",
+    "example.org", "domain.com", "email.com", "yourdomain", "sentry.wixpress",
+    "schema.org", "googleapis.com", "gstatic.com", "cloudflare", "w3.org",
+    "jquery", "fontawesome", "googletagmanager", "google-analytics",
 )
 # Asset-extension giveaways (e.g. logo@2x.png matched as an email).
 JUNK_SUFFIX = (".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".css",
@@ -61,6 +61,9 @@ def _clean_candidate(raw: str) -> str | None:
     # Retina/asset artifacts like "icon@2x" or pure-number localparts.
     local = low.split("@", 1)[0]
     if local.isdigit() or local.endswith("2x") or local.endswith("3x"):
+        return None
+    # 32-hex localparts are tracking/DSN keys (e.g. Sentry public keys), not emails.
+    if re.fullmatch(r"[0-9a-f]{32}", local):
         return None
     return e
 
