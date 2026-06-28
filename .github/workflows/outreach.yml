@@ -28,6 +28,12 @@ on:
       selftest:
         description: "true = only run the translation self-test (no scrape / DB / email)"
         default: "false"
+      resend_from:
+        description: "RESEND: a venue's current contact email (looks up the venue)"
+        default: ""
+      resend_to:
+        description: "RESEND: new address to send that venue's go-live link to"
+        default: ""
   schedule:
     - cron: "0 8 * * 1" # Mondays 08:00 UTC
 
@@ -69,7 +75,10 @@ jobs:
           DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
           TEST_EMAIL: ${{ github.event.inputs.test_email || '' }}
           SELFTEST: ${{ github.event.inputs.selftest || 'false' }}
+          RESEND_FROM: ${{ github.event.inputs.resend_from || '' }}
+          RESEND_TO: ${{ github.event.inputs.resend_to || '' }}
         run: |
+          if [ -n "$RESEND_FROM" ] && [ -n "$RESEND_TO" ]; then python resend.py --from-email "$RESEND_FROM" --to-email "$RESEND_TO" --update-contact; exit $?; fi
           if [ "$SELFTEST" = "true" ]; then python run.py --selftest-translate; exit $?; fi
           DRY=""
           if [ "$DRY_RUN" = "true" ]; then DRY="--dry-run"; fi
