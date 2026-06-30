@@ -53,9 +53,7 @@ def _credentials_block(login_url: str, login_email: str, login_password: str) ->
                       <p style="margin:0;font-size:14px;line-height:1.7;color:#333;">
                         Vă puteți modifica pagina accesând următorul link:
                         <a href="{url}" style="color:#2e63e2;font-weight:600;word-break:break-all;">{url}</a>
-                        utilizând credențialele
-                        <span style="{mono}">{email}</span>
-                        <span style="{mono}">{pwd}</span>.
+                        utilizând credențialele de mai jos.
                       </p>
                       <table role="presentation" cellpadding="0" cellspacing="0" style="margin:12px 0 0 0;">
                         <tr>
