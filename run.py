@@ -10,9 +10,11 @@ For each target city:
   5. dedup (already emailed)   -> skip + log 'skipped_dup'
   6. map taxonomy + copy       -> cuisine_slugs, tag_slugs, bilingual labels
   7. upload Google photos      -> restaurant-images bucket (Unsplash fallback)
-  8. insert restaurant (hidden)-> DB trigger mints a go-live link
+  8. insert restaurant (hidden)-> DB trigger mints a go-live link; `email` set
   9. read go-live token        -> {PUBLIC_BASE_URL}/go/{token}
- 10. Brevo send (Romanian)     -> log 'sent' | 'failed'
+ 9b. provision manager login   -> auth user + manager_credentials (email+password)
+ 10. Brevo send (Romanian)     -> go-live link + login link + credentials;
+                                  log 'sent' | 'failed'
 
 --dry-run does everything EXCEPT the DB write + Brevo send (prints what it would
 do), so you can test discovery/email/taxonomy without spending or sending.
@@ -185,6 +187,10 @@ def build_payload(place: dict, city_slug: str, city_name: str, email: str,
         "current_capacity": "GREEN", "capacity_seats": 40,
         "currently_occupied_tables": 0,
         "opens_at": opens_at, "closes_at": closes_at,
+        # `email` is the manager LOGIN identifier (unique, hidden from anon reads);
+        # `contact_email` is the outreach/provenance copy. We set both to the same
+        # crawled address so the venue can sign in with the address we mailed.
+        "email": email,
         "contact_email": email,
         "phone": place.get("nationalPhoneNumber") or place.get("internationalPhoneNumber"),
         "website": place.get("websiteUri"),
@@ -328,9 +334,27 @@ def main() -> int:
                     store.log_outreach(email=email, status="failed", restaurant_id=rid,
                                        error="no go-live token minted", city=city_slug)
                     continue
+
+                # 9b. Provision the manager login now (venue is hidden, so the Bun
+                #     provisioner won't), so we can put real credentials in the
+                #     email. Done only once we know we'll actually send, to avoid
+                #     orphan accounts. Failure here is non-fatal: we still send the
+                #     go-live email, just without the login block.
+                login_email = login_password = None
+                try:
+                    login_email, login_password = store.provision_manager(rid, email)
+                except Exception as e:  # noqa: BLE001
+                    print(f"  ! manager provisioning failed for {name}: {e}")
+                login_url = f"{public_base}/signin"
+
                 try:
                     import brevo
-                    msg_id = brevo.send_ro(email, payload["name"], go_live_url)
+                    msg_id = brevo.send_ro(
+                        email, payload["name"], go_live_url,
+                        login_url=login_url,
+                        login_email=login_email,
+                        login_password=login_password,
+                    )
                     store.log_outreach(email=email, status="sent", restaurant_id=rid,
                                        brevo_message_id=msg_id, city=city_slug)
                     stats["sent"] += 1

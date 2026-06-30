@@ -2,7 +2,8 @@
   Subject recomandat: {{venue_name}}: am pregătit pagina ta — e ascunsă până o confirmi tu
   Romanian outreach email — v2 (rewritten for conversion)
   Framework: PAS + reciprocitate + pierdere evitată + ROI specific
-  Placeholders: {{venue_name}}, {{go_live_url}}, {{sender_name}}, {{unsubscribe_url}}
+  Placeholders: {{venue_name}}, {{go_live_url}}, {{sender_name}}, {{unsubscribe_url}},
+                {{credentials_block}} (manager-login card; empty when not provisioned)
 -->
 <!DOCTYPE html>
 <html lang="ro">
@@ -96,6 +97,9 @@
                 </p>
               </td>
             </tr>
+
+            <!-- Manager login credentials (injected only when provisioned) -->
+            <!--CREDS_START-->{{credentials_block}}<!--CREDS_END-->
 
             <!-- Divider + fallback link -->
             <tr>

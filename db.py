@@ -15,11 +15,21 @@ from __future__ import annotations
 
 import os
 import re
+import secrets
 import time
 
 from supabase import create_client, Client
 
 BUCKET = "restaurant-images"
+
+# Unambiguous alphabet (no 0/O/1/l/I) — mirrors server/provisionManagers.ts so a
+# manager password generated here is indistinguishable from one the web app's
+# provisioner would mint. 16 chars ≈ 92 bits of entropy.
+PASSWORD_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789"
+
+
+def _generate_password(length: int = 16) -> str:
+    return "".join(secrets.choice(PASSWORD_ALPHABET) for _ in range(length))
 
 
 def _sanitize_filename(name: str) -> str:
@@ -93,6 +103,76 @@ class Store:
                .limit(1)
                .execute())
         return res.data[0]["token"] if res.data else None
+
+    # --- manager account provisioning ------------------------------------ #
+    def provision_manager(self, restaurant_id: str, email: str) -> tuple[str, str]:
+        """
+        Create (or reuse) the restaurant-manager login for a venue and return
+        (email, password) so the caller can put the credentials in the outreach
+        email. Mirrors web/server/provisionManagers.ts, but runs at outreach time
+        because the Bun provisioner only acts on *live* venues — ours are hidden
+        until the recipient redeems the go-live link.
+
+        Steps (all service-role, RLS-bypassing):
+          1. short-circuit if a credential already exists (idempotent re-runs),
+          2. create the Supabase Auth user (email + generated password),
+          3. upsert the platform `users` row (role 'manager', pinned to venue),
+          4. store the plaintext password in `manager_credentials`.
+
+        Raises on any unrecoverable failure so the caller can log it and still
+        decide whether to send.
+        """
+        email = email.strip().lower()
+
+        existing = (self.client.table("manager_credentials")
+                    .select("email, password")
+                    .eq("restaurant_id", restaurant_id)
+                    .limit(1)
+                    .execute())
+        if existing.data:
+            row = existing.data[0]
+            return row["email"], row["password"]
+
+        password = _generate_password()
+
+        # 2. Auth user. On a duplicate-email error (a previous partial run, or a
+        #    venue that already has an account), recover by reusing the existing
+        #    platform user id and resetting its password so re-runs converge.
+        user_id: str | None = None
+        try:
+            created = self.client.auth.admin.create_user({
+                "email": email,
+                "password": password,
+                "email_confirm": True,
+            })
+            user_id = created.user.id if created and created.user else None
+        except Exception:  # noqa: BLE001 — duplicate email / transient: try recovery
+            existing_user = (self.client.table("users")
+                             .select("id")
+                             .eq("email", email)
+                             .limit(1)
+                             .execute())
+            if not existing_user.data:
+                raise
+            user_id = existing_user.data[0]["id"]
+            self.client.auth.admin.update_user_by_id(user_id, {"password": password})
+        if not user_id:
+            raise RuntimeError("provision_manager: no auth user id")
+
+        # 3. Platform users row — role 'manager', pinned to this venue (RLS scope).
+        self.client.table("users").upsert(
+            {"id": user_id, "restaurant_id": restaurant_id,
+             "role": "manager", "email": email},
+            on_conflict="id",
+        ).execute()
+
+        # 4. Revealable credential (plaintext, like go-live tokens).
+        self.client.table("manager_credentials").upsert(
+            {"restaurant_id": restaurant_id, "email": email, "password": password},
+            on_conflict="restaurant_id",
+        ).execute()
+
+        return email, password
 
     def log_outreach(self, *, email: str, status: str, restaurant_id: str | None = None,
                      brevo_message_id: str | None = None, error: str | None = None,

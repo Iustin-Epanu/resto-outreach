@@ -5,8 +5,10 @@ Standalone automation that grows the Resto catalog and does cold outreach.
 For each target city it: scrapes restaurants from **Google Places**, crawls each
 venue's website for a **contact email**, imports the venue into the Resto
 Supabase DB as a **hidden** row (a DB trigger then mints a one-time go-live
-link), and **emails** the venue in Romanian via **Brevo** with that link as the
-call-to-action. Runs weekly on GitHub Actions, or on manual dispatch.
+link), **provisions a restaurant-manager login** (auth user + password) so the
+venue can edit its own page, and **emails** the venue in Romanian via **Brevo**
+with the go-live link, the login link, and its credentials. Runs weekly on
+GitHub Actions, or on manual dispatch.
 
 > This repo is intentionally separate from the Resto web app. It talks to the
 > same Supabase project but ships no web code. The web app is hosted elsewhere.
@@ -16,7 +18,8 @@ call-to-action. Runs weekly on GitHub Actions, or on manual dispatch.
 ```
 search (Places) → details → dedup(place_id) → crawl website for EMAIL
   → dedup(already-emailed) → map taxonomy + copy → insert hidden restaurant
-  → upload Google photos    → read go-live token → Brevo send (Romanian) → log
+  → upload Google photos    → read go-live token → provision manager login
+  → Brevo send (Romanian: go-live link + login link + credentials) → log
 ```
 
 Email is **required** — a venue with no discoverable email is skipped (logged
@@ -31,8 +34,8 @@ Email is **required** — a venue with no discoverable email is skipped (logged
 | `email_crawler.py` | Crawl the venue website for a contact email |
 | `taxonomy_map.py` | Map Places `types[]` → Resto cuisine/tag slugs |
 | `inference.py` | Cuisine keyword fallback, bilingual copy, fallback imagery |
-| `db.py` | Supabase service-role layer (insert, storage, go-live token, log) |
-| `brevo.py` + `email_templates/ro.html` | Romanian email (placeholder copy) |
+| `db.py` | Supabase service-role layer (insert, storage, go-live token, manager provisioning, log) |
+| `brevo.py` + `email_templates/ro.html` | Romanian email (go-live + login credentials) |
 | `migrations/2026-06-26-outreach.sql` | One-time DB setup (run in Supabase) |
 
 ## One-time setup
@@ -40,6 +43,11 @@ Email is **required** — a venue with no discoverable email is skipped (logged
 1. **DB migration** — run `migrations/2026-06-26-outreach.sql` in the Supabase
    SQL editor of the Resto project. Adds `contact_email/phone/website/
    google_place_id` to `restaurants` + the `outreach_log` table.
+   **Prerequisite:** the web app's **schema §12 (restaurant-manager accounts)**
+   must already be applied to the same Supabase project — this script writes the
+   `restaurants.email` login column, the `manager_credentials` table, and a
+   `manager`-role `users` row when provisioning each venue's login. If §12 isn't
+   applied yet, run it first (see `web/src/data/schema.sql`).
 2. **Google Maps API key** — enable *Places API (New)* in Google Cloud; restrict
    the key to that API.
 3. **Brevo** — verify a sender domain (SPF/DKIM) before any real send, or
