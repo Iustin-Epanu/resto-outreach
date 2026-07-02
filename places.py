@@ -138,6 +138,15 @@ def opening_hours(place: dict):
     return "11:00", "23:00"
 
 
+def location(place: dict) -> tuple[float, float] | None:
+    """(lat, lng) from the details response's `location`, or None if absent."""
+    loc = place.get("location") or {}
+    lat, lng = loc.get("latitude"), loc.get("longitude")
+    if lat is None or lng is None:
+        return None
+    return float(lat), float(lng)
+
+
 def neighborhood(place: dict) -> str | None:
     """
     Pull a neighborhood/sublocality from addressComponents, else the locality.

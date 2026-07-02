@@ -4,8 +4,10 @@ Restaurant outreach pipeline — entrypoint.
 
 For each target city:
   1. Places text search        -> candidate place ids
-  2. Place details             -> name, address, types, phone, website, photos, hours
+  2. Place details             -> name, address, coords, types, phone, website, photos, hours
   3. dedup (google_place_id)   -> skip places already imported
+ 3b. geo guard                 -> coords must be nearest to + within radius of the
+                                  searched city, else skip (no cross-city imports)
   4. crawl website for email   -> REQUIRED; no email => skip + log 'no_email'
   5. dedup (already emailed)   -> skip + log 'skipped_dup'
   6. map taxonomy + copy       -> cuisine_slugs, tag_slugs, bilingual labels
@@ -31,8 +33,33 @@ import os
 import sys
 import traceback
 
+
+def _load_dotenv() -> None:
+    """Load KEY=VALUE lines from a sibling .env into os.environ for local runs.
+
+    No-op if the file is missing (e.g. GitHub Actions, where secrets are already
+    in the environment). Never overrides variables that are already set, so real
+    CI secrets always win over a stale local .env.
+    """
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+    if not os.path.exists(path):
+        return
+    with open(path, encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            key, value = key.strip(), value.strip().strip('"').strip("'")
+            if key and key not in os.environ:
+                os.environ[key] = value
+
+
+_load_dotenv()
+
 import places
 import email_crawler
+import geo
 from taxonomy_map import map_taxonomy
 from inference import bilingual_copy, fallback_image_urls
 from translate import translate
@@ -157,6 +184,7 @@ def apply_google_description(place: dict, copy: dict, do_translate: bool = True)
 
 
 def build_payload(place: dict, city_slug: str, city_name: str, email: str,
+                  coords: tuple[float, float],
                   do_translate: bool = True):
     """Assemble the restaurants INSERT payload (visible=false) from a place."""
     name = (place.get("displayName") or {}).get("text") or "Restaurant"
@@ -181,6 +209,10 @@ def build_payload(place: dict, city_slug: str, city_name: str, email: str,
         "cuisine": copy["cuisine"], "cuisine_ro": copy["cuisine_ro"],
         "cuisine_slugs": cuisine_slugs, "tag_slugs": tag_slugs,
         "maps_url": place.get("googleMapsUri"),
+        # Coordinates come straight from Places details, so the map pin and
+        # distance sorting work the moment the venue goes live — no
+        # resolve-coords backfill needed for outreach imports.
+        "lat": coords[0], "lng": coords[1],
         "neighborhood": hood,
         "city": city_slug,
         "visible": False,
@@ -238,7 +270,7 @@ def main() -> int:
         from db import Store
         store = Store()
 
-    stats = {"discovered": 0, "skipped_dup": 0, "no_email": 0,
+    stats = {"discovered": 0, "skipped_dup": 0, "geo_skipped": 0, "no_email": 0,
              "skipped_emailed": 0, "inserted": 0, "sent": 0, "failed": 0}
     target = args.max
     remaining = target
@@ -289,6 +321,21 @@ def main() -> int:
                 if place.get("businessStatus") not in (None, "OPERATIONAL"):
                     continue
 
+                # 3b. geo guard — text search is fuzzy and drifts across cities,
+                #     so a venue only imports if its coordinates say it really
+                #     is in the city we searched (nearest centroid + radius).
+                #     No coordinates = can't verify = skip.
+                coords = places.location(place)
+                if not coords:
+                    stats["geo_skipped"] += 1
+                    print(f"  - {name}: no coordinates from Places (skip)")
+                    continue
+                geo_ok, geo_reason = geo.check_city(coords[0], coords[1], city_slug)
+                if not geo_ok:
+                    stats["geo_skipped"] += 1
+                    print(f"  - {name}: wrong city — {geo_reason} (skip)")
+                    continue
+
                 # 4. email is required
                 email = email_crawler.find(place.get("websiteUri"))
                 if not email:
@@ -305,13 +352,14 @@ def main() -> int:
                     print(f"  - {name}: {email} already contacted (skip)")
                     continue
 
-                payload = build_payload(place, city_slug, city_name, email,
+                payload = build_payload(place, city_slug, city_name, email, coords,
                                         do_translate=not args.dry_run)
                 go_live_url = None
 
                 if args.dry_run:
                     print(f"  ~ DRY {name} <{email}> [{','.join(payload['cuisine_slugs'])}"
-                          f" | {','.join(payload['tag_slugs'])}] phone={payload['phone']}")
+                          f" | {','.join(payload['tag_slugs'])}] phone={payload['phone']}"
+                          f" geo={payload['lat']:.4f},{payload['lng']:.4f} ({geo_reason})")
                     remaining -= 1
                     continue
 

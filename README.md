@@ -16,21 +16,33 @@ GitHub Actions, or on manual dispatch.
 ## Pipeline
 
 ```
-search (Places) → details → dedup(place_id) → crawl website for EMAIL
-  → dedup(already-emailed) → map taxonomy + copy → insert hidden restaurant
-  → upload Google photos    → read go-live token → provision manager login
+search (Places) → details → dedup(place_id) → GEO GUARD (right city?)
+  → crawl website for EMAIL → dedup(already-emailed) → map taxonomy + copy
+  → insert hidden restaurant (with lat/lng) → upload Google photos
+  → read go-live token → provision manager login
   → Brevo send (Romanian: go-live link + login link + credentials) → log
 ```
 
 Email is **required** — a venue with no discoverable email is skipped (logged
 `no_email`), never imported.
 
+**Geo guard** (`geo.py`) — Google text search is fuzzy and returns venues from
+neighboring cities/towns, so a place only imports if its Places coordinates say
+it truly belongs to the searched city: the searched city must be the **nearest**
+centroid among all cities the web app knows (`web/src/lib/cities.ts` mirror) AND
+within an acceptance radius (15 km default, 20 km for București). Rejected
+venues are counted as `geo_skipped`. The coordinates are then written to
+`restaurants.lat/lng` at insert time, so the map pin and distance sorting work
+the moment a venue goes live — no `resolve-coords` backfill needed for outreach
+imports.
+
 ## Files
 
 | File | Role |
 |------|------|
 | `run.py` | Orchestrator / entrypoint (`--cities`, `--max`, `--dry-run`) |
-| `places.py` | Google Places API (New): search, details, photos, hours |
+| `places.py` | Google Places API (New): search, details, photos, hours, coords |
+| `geo.py` | City centroids (mirror of `web/src/lib/cities.ts`) + import-time geo guard |
 | `email_crawler.py` | Crawl the venue website for a contact email |
 | `taxonomy_map.py` | Map Places `types[]` → Resto cuisine/tag slugs |
 | `inference.py` | Cuisine keyword fallback, bilingual copy, fallback imagery |
