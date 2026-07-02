@@ -14,8 +14,8 @@ on:
   workflow_dispatch:
     inputs:
       cities:
-        description: "Comma-separated city slugs (cluj-napoca,bucuresti,iasi,botosani)"
-        default: "cluj-napoca"
+        description: "Comma-separated city slugs, or 'all' (priority: cluj-napoca, bucuresti, iasi, timisoara, brasov)"
+        default: "all"
       max:
         description: "Target new venues to import + email this run (daily send cap)"
         default: "300"
@@ -57,7 +57,7 @@ jobs:
           BREVO_SENDER_NAME: "Resto"
           BREVO_UNSUBSCRIBE_URL: ${{ secrets.BREVO_UNSUBSCRIBE_URL }}
           PUBLIC_BASE_URL: ${{ secrets.PUBLIC_BASE_URL }}
-          CITIES: ${{ github.event.inputs.cities || 'cluj-napoca,bucuresti,iasi,botosani' }}
+          CITIES: ${{ github.event.inputs.cities || 'all' }}
           MAX_VENUES: ${{ github.event.inputs.max || '300' }}
           DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
         run: |

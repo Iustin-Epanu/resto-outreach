@@ -65,33 +65,93 @@ from inference import bilingual_copy, fallback_image_urls
 from translate import translate
 
 # City slug -> (display name, Google search term). Slugs MUST match the web app's
-# src/lib/cities.ts (the consumer app gates browsing on isCityId), so we only
-# ship supported ones. Add a city there first before targeting it here.
+# src/lib/cities.ts (the consumer app gates browsing on isCityId) AND geo.py's
+# CITY_CENTROIDS (the geo guard rejects slugs it doesn't know). Add a city to
+# both before targeting it here. Order = allocation order for non-priority
+# cities (roughly by population, mirroring cities.ts).
 CITY_CONFIG = {
-    "cluj-napoca": ("Cluj-Napoca", "Cluj-Napoca"),
-    "bucuresti":   ("București",   "Bucharest"),
-    "iasi":        ("Iași",        "Iasi"),
-    "botosani":    ("Botoșani",    "Botosani"),
+    "bucuresti":             ("București",             "Bucharest"),
+    "cluj-napoca":           ("Cluj-Napoca",           "Cluj-Napoca"),
+    "timisoara":             ("Timișoara",             "Timisoara"),
+    "iasi":                  ("Iași",                  "Iasi"),
+    "constanta":             ("Constanța",             "Constanta"),
+    "craiova":               ("Craiova",               "Craiova"),
+    "brasov":                ("Brașov",                "Brasov"),
+    "galati":                ("Galați",                "Galati"),
+    "ploiesti":              ("Ploiești",              "Ploiesti"),
+    "oradea":                ("Oradea",                "Oradea"),
+    "braila":                ("Brăila",                "Braila"),
+    "arad":                  ("Arad",                  "Arad"),
+    "pitesti":               ("Pitești",               "Pitesti"),
+    "sibiu":                 ("Sibiu",                 "Sibiu"),
+    "bacau":                 ("Bacău",                 "Bacau"),
+    "targu-mures":           ("Târgu Mureș",           "Targu Mures"),
+    "baia-mare":             ("Baia Mare",             "Baia Mare"),
+    "buzau":                 ("Buzău",                 "Buzau"),
+    "botosani":              ("Botoșani",              "Botosani"),
+    "satu-mare":             ("Satu Mare",             "Satu Mare"),
+    "ramnicu-valcea":        ("Râmnicu Vâlcea",        "Ramnicu Valcea"),
+    "suceava":               ("Suceava",               "Suceava"),
+    "piatra-neamt":          ("Piatra Neamț",          "Piatra Neamt"),
+    "drobeta-turnu-severin": ("Drobeta-Turnu Severin", "Drobeta-Turnu Severin"),
+    "focsani":               ("Focșani",               "Focsani"),
+    "targoviste":            ("Târgoviște",            "Targoviste"),
+    "bistrita":              ("Bistrița",              "Bistrita"),
+    "resita":                ("Reșița",                "Resita"),
+    "tulcea":                ("Tulcea",                "Tulcea"),
+    "slatina":               ("Slatina",               "Slatina"),
+    "calarasi":              ("Călărași",              "Calarasi"),
+    "alba-iulia":            ("Alba Iulia",            "Alba Iulia"),
+    "deva":                  ("Deva",                  "Deva"),
+    "giurgiu":               ("Giurgiu",               "Giurgiu"),
+    "zalau":                 ("Zalău",                 "Zalau"),
+    "alexandria":            ("Alexandria",            "Alexandria"),
+    "vaslui":                ("Vaslui",                "Vaslui"),
+    "sfantu-gheorghe":       ("Sfântu Gheorghe",       "Sfantu Gheorghe"),
+    "targu-jiu":             ("Târgu Jiu",             "Targu Jiu"),
+    "slobozia":              ("Slobozia",              "Slobozia"),
+    "miercurea-ciuc":        ("Miercurea Ciuc",        "Miercurea Ciuc"),
+    "buftea":                ("Buftea",                "Buftea"),
 }
+
+# Cities that get the lion's share of each run's send budget (see
+# allocate_quotas). Everything else in CITY_CONFIG still gets a small
+# guaranteed slice so the long tail keeps growing.
+PRIORITY_CITIES = ["cluj-napoca", "bucuresti", "iasi", "timisoara", "brasov"]
+PRIORITY_SHARE = 0.70  # fraction of the run target reserved for priority cities
 
 # Google's Places searchText caps each query at ~60 results, so a single
 # "restaurants in X" query can never feed a 300/day target. We fan out across
 # many angles (cuisine, type, meal) per city; results are deduped by place id
 # within the run, so overlap between angles is harmless. More angles = more
 # unique candidates = more emails actually sent.
+#
+# Each variant is (template, includedType). includedType="restaurant" was
+# previously hard-coded for ALL queries, which silently excluded every cafe and
+# coffee shop from results — cafe queries need "cafe"/"coffee_shop", terrace
+# queries need None (those venues span restaurant/cafe/bar types).
+#
+# Queries run in order and the run stops when the city's quota fills, so the
+# coffee-shop and terrace angles go FIRST — they get first crack at each
+# city's budget.
 SEARCH_VARIANTS = [
-    "restaurants in {city}, Romania",
-    "best restaurants in {city}, Romania",
-    "traditional Romanian restaurant in {city}",
-    "pizza in {city}, Romania",
-    "italian restaurant in {city}, Romania",
-    "asian restaurant in {city}, Romania",
-    "fast food in {city}, Romania",
-    "cafe and brunch in {city}, Romania",
-    "bistro in {city}, Romania",
-    "pub and bar food in {city}, Romania",
-    "fine dining in {city}, Romania",
-    "burger in {city}, Romania",
+    ("specialty coffee in {city}, Romania",          "cafe"),
+    ("coffee shop in {city}, Romania",               "coffee_shop"),
+    ("cafenea in {city}, Romania",                   "cafe"),
+    ("cafe and brunch in {city}, Romania",           "cafe"),
+    ("terasa in {city}, Romania",                    None),
+    ("restaurant cu terasa in {city}, Romania",      "restaurant"),
+    ("restaurants in {city}, Romania",               "restaurant"),
+    ("best restaurants in {city}, Romania",          "restaurant"),
+    ("traditional Romanian restaurant in {city}",    "restaurant"),
+    ("pizza in {city}, Romania",                     "restaurant"),
+    ("italian restaurant in {city}, Romania",        "restaurant"),
+    ("asian restaurant in {city}, Romania",          "restaurant"),
+    ("fast food in {city}, Romania",                 "restaurant"),
+    ("bistro in {city}, Romania",                    "restaurant"),
+    ("pub and bar food in {city}, Romania",          "restaurant"),
+    ("fine dining in {city}, Romania",               "restaurant"),
+    ("burger in {city}, Romania",                    "restaurant"),
 ]
 
 
@@ -115,34 +175,63 @@ NEIGHBORHOODS = {
         "Galata", "Podu Roș", "Tudor Vladimirescu", "Canta", "Dacia", "Bucium",
     ],
     "botosani": [
-        "Centru", "Calea Națională", "Bucovina", "Primăverii", "Grivița",
+        "Centru", "Calea Națională", "Primăverii", "Grivița",
         "Parcul Tineretului", "Pacea",
+    ],
+    "timisoara": [
+        "Cetate", "Fabric", "Iosefin", "Elisabetin", "Complexul Studențesc",
+        "Circumvalațiunii", "Aradului", "Lipovei", "Șagului", "Girocului",
+    ],
+    "brasov": [
+        "Centrul Vechi", "Șchei", "Centrul Civic", "Astra", "Tractorul",
+        "Bartolomeu", "Răcădău", "Noua", "Poiana Brașov",
     ],
 }
 
 NEIGHBORHOOD_VARIANTS = [
-    "restaurants in {hood}, {city}, Romania",
-    "cafe bistro bar in {hood}, {city}, Romania",
+    ("coffee shop cafenea in {hood}, {city}, Romania", "cafe"),
+    ("restaurants in {hood}, {city}, Romania",         "restaurant"),
+    ("cafe bistro bar in {hood}, {city}, Romania",     None),
 ]
 
 
 def build_queries(city_slug: str, city_term: str):
     """
-    City-wide angles first, then per-neighborhood angles. Each query is capped at
-    ~60 results by Google, so more (deduped) queries = a larger reachable pool.
-    The run stops once the target is hit, so the deeper neighborhood queries only
-    execute when the broad ones didn't already fill the quota.
+    City-wide angles first, then per-neighborhood angles, as (query, includedType)
+    tuples. Each query is capped at ~60 results by Google, so more (deduped)
+    queries = a larger reachable pool. The run stops once the city quota is hit,
+    so the deeper neighborhood queries only execute when the broad ones didn't
+    already fill it.
     """
-    queries = [v.format(city=city_term) for v in SEARCH_VARIANTS]
+    queries = [(v.format(city=city_term), t) for v, t in SEARCH_VARIANTS]
     for hood in NEIGHBORHOODS.get(city_slug, []):
-        queries += [v.format(hood=hood, city=city_term) for v in NEIGHBORHOOD_VARIANTS]
+        queries += [(v.format(hood=hood, city=city_term), t)
+                    for v, t in NEIGHBORHOOD_VARIANTS]
     return queries
+
+
+def allocate_quotas(cities: list[str], target: int) -> dict[str, int]:
+    """
+    Split the run's send target across cities: PRIORITY_CITIES share
+    PRIORITY_SHARE of it, every other city splits the rest (at least 1 each
+    while the target allows). Unused quota rolls forward to the next city at
+    run time, so an under-filled city never strands budget.
+    """
+    pri = [c for c in cities if c in PRIORITY_CITIES]
+    rest = [c for c in cities if c not in PRIORITY_CITIES]
+    if not pri or not rest:
+        share = max(1, target // max(1, len(cities)))
+        return {c: share for c in cities}
+    rest_each = max(1, round(target * (1 - PRIORITY_SHARE)) // len(rest))
+    pri_each = max(1, (target - rest_each * len(rest)) // len(pri))
+    return {c: (pri_each if c in PRIORITY_CITIES else rest_each) for c in cities}
 
 
 def parse_args():
     p = argparse.ArgumentParser(description="Resto restaurant outreach pipeline")
-    p.add_argument("--cities", default="cluj-napoca,bucuresti,iasi,botosani",
-                   help="comma-separated city slugs (must match web src/lib/cities.ts)")
+    p.add_argument("--cities", default="all",
+                   help="comma-separated city slugs (must match web src/lib/cities.ts), "
+                        "or 'all' for every supported city (priority cities first)")
     p.add_argument("--max", type=int, default=300,
                    help="target NEW venues to import+email per run (the daily send cap)")
     p.add_argument("--per-city-search", type=int, default=60,
@@ -190,6 +279,9 @@ def build_payload(place: dict, city_slug: str, city_name: str, email: str,
     name = (place.get("displayName") or {}).get("text") or "Restaurant"
     types = place.get("types") or []
     cuisine_key, cuisine_slugs, tag_slugs = map_taxonomy(types, name)
+    # Google explicitly says the venue has outdoor seating -> terrace tag.
+    if place.get("outdoorSeating") and "terrace" not in tag_slugs:
+        tag_slugs = tag_slugs + ["terrace"]
     copy = bilingual_copy(cuisine_key, name, city_name)
     opens_at, closes_at = places.opening_hours(place)
     hood = places.neighborhood(place) or city_name
@@ -254,14 +346,21 @@ def attach_images(store, restaurant_id: str, place: dict) -> bool:
 
 def main() -> int:
     args = parse_args()
-    cities = [c.strip() for c in args.cities.split(",") if c.strip()]
-    unknown = [c for c in cities if c not in CITY_CONFIG]
-    if unknown:
-        print(f"WARNING: skipping unsupported city slugs (not in cities.ts): {unknown}")
-        cities = [c for c in cities if c in CITY_CONFIG]
+    if args.cities.strip().lower() == "all":
+        cities = list(CITY_CONFIG)
+    else:
+        cities = [c.strip() for c in args.cities.split(",") if c.strip()]
+        unknown = [c for c in cities if c not in CITY_CONFIG]
+        if unknown:
+            print(f"WARNING: skipping unsupported city slugs (not in cities.ts): {unknown}")
+            cities = [c for c in cities if c in CITY_CONFIG]
     if not cities:
         print("No valid cities to process.")
         return 1
+    # Priority cities run first; the rest keep CITY_CONFIG's population order.
+    # Quota a city can't fill rolls forward to the cities after it.
+    cities = ([c for c in PRIORITY_CITIES if c in cities]
+              + [c for c in cities if c not in PRIORITY_CITIES])
 
     public_base = os.environ.get("PUBLIC_BASE_URL", "https://restonow.app").rstrip("/")
 
@@ -277,28 +376,34 @@ def main() -> int:
     seen: set[str] = set()  # place ids handled this run (dedup across query angles)
     print(f"TARGET: up to {target} emails this run · cities={cities}")
 
+    quotas = allocate_quotas(cities, target)
+    carry = 0  # unused quota rolled forward from under-filled cities
+    print(f"QUOTAS: {quotas}")
+
     for city_slug in cities:
         if remaining <= 0:
             break
         city_name, city_term = CITY_CONFIG[city_slug]
         queries = build_queries(city_slug, city_term)
+        city_budget = min(remaining, quotas[city_slug] + carry)
         print(f"\n=== {city_name} ({city_slug}) — {len(queries)} search angles, "
-              f"{remaining} of {target} still to send ===")
+              f"city budget {city_budget} ({remaining} of {target} still to send) ===")
 
-        for query in queries:
-            if remaining <= 0:
+        for query, included_type in queries:
+            if remaining <= 0 or city_budget <= 0:
                 break
             try:
-                candidates = places.search_text(query, max_results=args.per_city_search)
+                candidates = places.search_text(query, max_results=args.per_city_search,
+                                                included_type=included_type)
             except places.PlacesError as e:
                 print(f"  ! search failed [{query}]: {e}")
                 continue
             fresh = [c.get("id") for c in candidates if c.get("id") and c["id"] not in seen]
             print(f"  [{query}] {len(candidates)} found, {len(fresh)} new "
-                  f"(remaining {remaining})")
+                  f"(city budget {city_budget})")
 
             for place_id in fresh:
-                if remaining <= 0:
+                if remaining <= 0 or city_budget <= 0:
                     break
                 if place_id in seen:
                     continue
@@ -361,6 +466,7 @@ def main() -> int:
                           f" | {','.join(payload['tag_slugs'])}] phone={payload['phone']}"
                           f" geo={payload['lat']:.4f},{payload['lng']:.4f} ({geo_reason})")
                     remaining -= 1
+                    city_budget -= 1
                     continue
 
                 # 7-8. insert (hidden, with fallback hero) — trigger mints the
@@ -414,6 +520,10 @@ def main() -> int:
                     print(f"  ! send failed for {name}: {e}")
 
                 remaining -= 1
+                city_budget -= 1
+
+        # Whatever this city couldn't fill rolls forward to the next one.
+        carry = max(0, city_budget)
 
     print("\n=== summary ===")
     for k, v in stats.items():

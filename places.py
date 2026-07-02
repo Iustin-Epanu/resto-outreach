@@ -26,7 +26,7 @@ DETAILS_FIELDS = ",".join([
     "location", "types", "primaryType", "nationalPhoneNumber",
     "internationalPhoneNumber", "websiteUri", "editorialSummary",
     "regularOpeningHours", "photos", "rating", "userRatingCount",
-    "googleMapsUri", "businessStatus",
+    "googleMapsUri", "businessStatus", "outdoorSeating",
 ])
 
 # Search only needs ids + a couple of cheap fields to pre-filter.
@@ -48,10 +48,14 @@ def _api_key() -> str:
 
 
 def search_text(query: str, max_results: int = 60, page_size: int = 20,
-                region: str = "ro"):
+                region: str = "ro", included_type: str | None = "restaurant"):
     """
     Run a Places text search, paginating until max_results or no nextPageToken.
     Returns a list of place dicts ({id, displayName, types, businessStatus}).
+
+    `included_type` restricts results to one Places type ("restaurant", "cafe",
+    "coffee_shop", …). Pass None to leave the text query unrestricted — needed
+    for terrace-style queries where the venues span restaurant/cafe/bar types.
     """
     headers = {
         "Content-Type": "application/json",
@@ -65,8 +69,9 @@ def search_text(query: str, max_results: int = 60, page_size: int = 20,
             "textQuery": query,
             "pageSize": min(page_size, 20),
             "regionCode": region.upper(),
-            "includedType": "restaurant",
         }
+        if included_type:
+            body["includedType"] = included_type
         if page_token:
             body["pageToken"] = page_token
         resp = requests.post(SEARCH_URL, headers=headers, json=body, timeout=30)

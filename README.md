@@ -26,6 +26,18 @@ search (Places) → details → dedup(place_id) → GEO GUARD (right city?)
 Email is **required** — a venue with no discoverable email is skipped (logged
 `no_email`), never imported.
 
+**Cities & priorities** — `--cities all` (the default, also for scheduled runs)
+targets every city in `web/src/lib/cities.ts`. `PRIORITY_CITIES` (cluj-napoca,
+bucuresti, iasi, timisoara, brasov) split 70% of the run's send target; the
+other ~37 cities split the rest with at least 1 send each, so the long tail
+keeps growing. Quota a city can't fill rolls forward to the next city.
+
+**Coffee & terrace focus** — the coffee-shop / cafenea / terasa search angles
+run FIRST in every city, so they get first crack at each city's budget. Search
+`includedType` is now per-query ("cafe"/"coffee_shop"/None) — it used to be
+hard-coded to "restaurant", which silently excluded all cafes. Venues Google
+marks `outdoorSeating` get the `terrace` tag automatically.
+
 **Geo guard** (`geo.py`) — Google text search is fuzzy and returns venues from
 neighboring cities/towns, so a place only imports if its Places coordinates say
 it truly belongs to the searched city: the searched city must be the **nearest**
