@@ -63,12 +63,42 @@ CITY_CENTROIDS: dict[str, tuple[float, float]] = {
     "slobozia": (44.5647, 27.3661),
     "miercurea-ciuc": (46.3612, 25.8018),
     "buftea": (44.5667, 25.95),
+    # --- Romanian litoral (Black Sea coast) ------------------------------- #
+    # Distinct centroids so the nearest-centroid guard files each coastal venue
+    # under its real town, not under Constanța. Ordered north -> south. Tight
+    # radii (below) keep the closely-spaced resorts from bleeding into each
+    # other. Constanța (44.1598, 28.6348) is already listed above and acts as
+    # the northern magnet.
+    "navodari": (44.3186, 28.6100),
+    "mamaia": (44.2569, 28.6206),
+    "eforie": (44.0490, 28.6400),        # centroid between Eforie Nord & Sud
+    "techirghiol": (44.0520, 28.6010),   # spa town on the lake, W of Eforie
+    "costinesti": (43.9536, 28.6317),
+    "neptun-olimp": (43.8620, 28.6110),  # Olimp->Venus strip (+ Jupiter / Cap Aurora)
+    "mangalia": (43.8163, 28.5825),      # + Saturn (adjacent to the north)
+    "2mai": (43.7900, 28.5760),
+    "vama-veche": (43.7515, 28.5760),
 }
 
 # Acceptance radius (km) from the searched city's centroid. Default fits a
 # mid-size Romanian city plus its close suburbs; Bucharest sprawls further.
 DEFAULT_MAX_KM = 15.0
-MAX_KM_OVERRIDES = {"bucuresti": 20.0}
+MAX_KM_OVERRIDES = {
+    "bucuresti": 20.0,
+    # Coastal resorts sit only a few km apart, so a wide radius would let one
+    # town swallow its neighbours. Keep these tight — the nearest-centroid test
+    # already handles which town wins; the radius just bounds how far out we
+    # still accept a venue as belonging to that town.
+    "mamaia": 6.0,
+    "navodari": 7.0,
+    "eforie": 7.0,          # spans Eforie Nord + Sud (~5.5km apart)
+    "techirghiol": 5.0,
+    "costinesti": 5.0,
+    "neptun-olimp": 8.0,    # covers the Olimp->Venus resort strip
+    "mangalia": 7.0,        # covers Saturn to the north
+    "2mai": 4.0,
+    "vama-veche": 4.0,
+}
 
 
 def km(lat_a: float, lng_a: float, lat_b: float, lng_b: float) -> float:

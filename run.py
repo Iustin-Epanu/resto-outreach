@@ -60,6 +60,7 @@ _load_dotenv()
 import places
 import email_crawler
 import geo
+import filters
 from taxonomy_map import map_taxonomy
 from inference import bilingual_copy, fallback_image_urls
 from translate import translate
@@ -112,13 +113,38 @@ CITY_CONFIG = {
     "slobozia":              ("Slobozia",              "Slobozia"),
     "miercurea-ciuc":        ("Miercurea Ciuc",        "Miercurea Ciuc"),
     "buftea":                ("Buftea",                "Buftea"),
+    # --- Romanian litoral (Black Sea coast) ------------------------------- #
+    # Peak-season targets. Constanța (above) is the county seat; the resorts
+    # below are geo-separated with their own centroids in geo.py so a Mamaia or
+    # Năvodari venue is never filed under Constanța. Small satellite resorts are
+    # folded into the nearest listed town (see geo.py): Jupiter/Venus/Cap Aurora
+    # -> neptun-olimp, Saturn -> mangalia, Eforie Sud -> eforie.
+    "mamaia":                ("Mamaia",                "Mamaia"),
+    "navodari":              ("Năvodari",              "Navodari"),
+    "eforie":                ("Eforie",                "Eforie"),
+    "techirghiol":           ("Techirghiol",           "Techirghiol"),
+    "costinesti":            ("Costinești",            "Costinesti"),
+    "neptun-olimp":          ("Neptun-Olimp",          "Neptun Olimp"),
+    "mangalia":              ("Mangalia",              "Mangalia"),
+    "2mai":                  ("2 Mai",                 "2 Mai"),
+    "vama-veche":            ("Vama Veche",            "Vama Veche"),
 }
+
+# Romanian coast. Constanța stays in PRIORITY (it's a top-10 city), but the
+# resort towns get their own budget tier so the coast is actually covered in
+# season instead of being starved by the big inland cities. See allocate_quotas.
+COASTAL_CITIES = ["mamaia", "navodari", "eforie", "techirghiol", "costinesti",
+                  "neptun-olimp", "mangalia", "2mai", "vama-veche"]
 
 # Cities that get the lion's share of each run's send budget (see
 # allocate_quotas). Everything else in CITY_CONFIG still gets a small
 # guaranteed slice so the long tail keeps growing.
 PRIORITY_CITIES = ["cluj-napoca", "bucuresti", "iasi", "timisoara", "brasov"]
-PRIORITY_SHARE = 0.70  # fraction of the run target reserved for priority cities
+# Three-tier budget split (see allocate_quotas): the big inland cities lead but
+# no longer hog the run, the coast gets a dedicated in-season slice, and the
+# long tail keeps its guaranteed share. Rest gets whatever's left (1 - the two).
+PRIORITY_SHARE = 0.45  # priority inland cities
+COASTAL_SHARE = 0.25   # COASTAL_CITIES as a group (Constanța is priority, not here)
 
 # Google's Places searchText caps each query at ~60 results, so a single
 # "restaurants in X" query can never feed a 300/day target. We fan out across
@@ -212,19 +238,37 @@ def build_queries(city_slug: str, city_term: str):
 
 def allocate_quotas(cities: list[str], target: int) -> dict[str, int]:
     """
-    Split the run's send target across cities: PRIORITY_CITIES share
-    PRIORITY_SHARE of it, every other city splits the rest (at least 1 each
-    while the target allows). Unused quota rolls forward to the next city at
+    Split the run's send target across three tiers — priority inland cities
+    (PRIORITY_SHARE), the coast (COASTAL_SHARE), and everyone else (the
+    remainder) — dividing each tier's slice evenly among its members (at least 1
+    each while the target allows). Unused quota rolls forward to the next city at
     run time, so an under-filled city never strands budget.
+
+    A tier absent from `cities` has its share redistributed proportionally to the
+    tiers that ARE present, so e.g. a coast-only run (`--cities mamaia,mangalia`)
+    still spends the whole target. When only one tier is present we just split
+    evenly, matching the old single-tier behavior.
     """
     pri = [c for c in cities if c in PRIORITY_CITIES]
-    rest = [c for c in cities if c not in PRIORITY_CITIES]
-    if not pri or not rest:
+    coast = [c for c in cities if c in COASTAL_CITIES]
+    rest = [c for c in cities if c not in PRIORITY_CITIES and c not in COASTAL_CITIES]
+
+    present = [(g, s) for g, s in
+               ((pri, PRIORITY_SHARE), (coast, COASTAL_SHARE),
+                (rest, max(0.0, 1 - PRIORITY_SHARE - COASTAL_SHARE)))
+               if g]
+    if len(present) <= 1:
         share = max(1, target // max(1, len(cities)))
         return {c: share for c in cities}
-    rest_each = max(1, round(target * (1 - PRIORITY_SHARE)) // len(rest))
-    pri_each = max(1, (target - rest_each * len(rest)) // len(pri))
-    return {c: (pri_each if c in PRIORITY_CITIES else rest_each) for c in cities}
+
+    total_share = sum(s for _, s in present) or 1.0
+    quotas: dict[str, int] = {}
+    for group, share in present:
+        tier_budget = round(target * share / total_share)
+        each = max(1, tier_budget // len(group))
+        for c in group:
+            quotas[c] = each
+    return quotas
 
 
 def parse_args():
@@ -369,8 +413,9 @@ def main() -> int:
         from db import Store
         store = Store()
 
-    stats = {"discovered": 0, "skipped_dup": 0, "geo_skipped": 0, "no_email": 0,
-             "skipped_emailed": 0, "inserted": 0, "sent": 0, "failed": 0}
+    stats = {"discovered": 0, "retail_skipped": 0, "skipped_dup": 0,
+             "geo_skipped": 0, "no_email": 0, "skipped_emailed": 0,
+             "inserted": 0, "sent": 0, "failed": 0}
     target = args.max
     remaining = target
     seen: set[str] = set()  # place ids handled this run (dedup across query angles)
@@ -398,7 +443,20 @@ def main() -> int:
             except places.PlacesError as e:
                 print(f"  ! search failed [{query}]: {e}")
                 continue
-            fresh = [c.get("id") for c in candidates if c.get("id") and c["id"] not in seen]
+            # Drop supermarkets / hypermarkets / malls up front, on the cheap
+            # search fields (name + types), so we never spend a details call on
+            # them. seen-tag the excluded ids so a later angle doesn't re-check.
+            fresh = []
+            for c in candidates:
+                cid = c.get("id")
+                if not cid or cid in seen:
+                    continue
+                excluded, why = filters.is_excluded(filters.candidate_name(c), c.get("types"))
+                if excluded:
+                    seen.add(cid)
+                    stats["retail_skipped"] += 1
+                    continue
+                fresh.append(cid)
             print(f"  [{query}] {len(candidates)} found, {len(fresh)} new "
                   f"(city budget {city_budget})")
 
@@ -424,6 +482,15 @@ def main() -> int:
                     continue
                 name = (place.get("displayName") or {}).get("text") or place_id
                 if place.get("businessStatus") not in (None, "OPERATIONAL"):
+                    continue
+
+                # Re-run the retail filter on the FULL details types (richer than
+                # the search candidate's) — catches a supermarket/mall whose
+                # search-stage types were too sparse to flag.
+                excluded, why = filters.is_excluded(name, place.get("types"))
+                if excluded:
+                    stats["retail_skipped"] += 1
+                    print(f"  - {name}: retail/mall — {why} (skip)")
                     continue
 
                 # 3b. geo guard — text search is fuzzy and drifts across cities,
