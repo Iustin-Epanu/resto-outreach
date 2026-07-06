@@ -74,7 +74,12 @@ def search_text(query: str, max_results: int = 60, page_size: int = 20,
             body["includedType"] = included_type
         if page_token:
             body["pageToken"] = page_token
-        resp = requests.post(SEARCH_URL, headers=headers, json=body, timeout=30)
+        try:
+            resp = requests.post(SEARCH_URL, headers=headers, json=body, timeout=30)
+        except requests.RequestException as e:
+            # Wrap transient network faults (SSL/connection/timeout) as PlacesError
+            # so callers skip this query instead of the whole run crashing.
+            raise PlacesError(f"searchText network error: {e}") from e
         if resp.status_code != 200:
             raise PlacesError(f"searchText {resp.status_code}: {resp.text[:300]}")
         data = resp.json()
@@ -101,7 +106,12 @@ def details(place_id: str, language_code: str = "ro"):
         "X-Goog-FieldMask": DETAILS_FIELDS,
     }
     url = DETAILS_URL.format(place_id=place_id)
-    resp = requests.get(url, headers=headers, params={"languageCode": language_code}, timeout=30)
+    try:
+        resp = requests.get(url, headers=headers, params={"languageCode": language_code}, timeout=30)
+    except requests.RequestException as e:
+        # Transient network fault -> PlacesError so the caller skips just this
+        # venue (its except PlacesError branch) instead of the run crashing.
+        raise PlacesError(f"details network error: {e}") from e
     if resp.status_code == 404:
         return None
     if resp.status_code != 200:

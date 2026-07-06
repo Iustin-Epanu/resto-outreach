@@ -33,6 +33,11 @@ concurrency:
 jobs:
   outreach:
     runs-on: ubuntu-latest
+    # Exit cleanly before GitHub's hard 6h job cap (which force-cancels the run
+    # mid-city and prints no summary). At 330m the pipeline finishes its pass and
+    # logs stats. The real coverage fix is run.py's --city-give-up early-exit, so
+    # a mined-out city can't eat the whole window and the tail still gets reached.
+    timeout-minutes: 330
     steps:
       - uses: actions/checkout@v4
 

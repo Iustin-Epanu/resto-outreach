@@ -280,6 +280,11 @@ def parse_args():
                    help="target NEW venues to import+email per run (the daily send cap)")
     p.add_argument("--per-city-search", type=int, default=60,
                    help="max results to scan per search query (Google caps this at ~60)")
+    p.add_argument("--city-give-up", type=int, default=60,
+                   help="abandon a city after this many consecutive candidates yield no "
+                        "fresh emailable lead (dups/no-email/already-contacted). Stops a "
+                        "mined-out priority city from eating the whole run window so the "
+                        "tail (coast, long-tail cities) still gets reached. 0 = never.")
     p.add_argument("--dry-run", action="store_true",
                    help="discover + crawl + map only; no DB write, no email send")
     return p.parse_args()
@@ -434,8 +439,21 @@ def main() -> int:
         print(f"\n=== {city_name} ({city_slug}) — {len(queries)} search angles, "
               f"city budget {city_budget} ({remaining} of {target} still to send) ===")
 
+        # Early-exit guard: `barren` counts consecutive *in-city* candidates that
+        # were dead ends — already imported, no reachable email, or already
+        # emailed — the signals that a city's fresh-lead pool is mined out. It
+        # resets the moment a real lead is found. Once it crosses --city-give-up
+        # we abandon the city (across all its remaining angles) so a mined-out
+        # city can't eat the whole run window. Deliberately does NOT count
+        # geo-skips (wrong-city search drift) or retail/transient skips: those say
+        # nothing about this city's pool, and for a small resort next to a big
+        # city they'd otherwise trip the guard before its few real venues appear.
+        # Persists across the city's query angles — an exhausted city stays so.
+        barren = 0
+        city_exhausted = False
+
         for query, included_type in queries:
-            if remaining <= 0 or city_budget <= 0:
+            if remaining <= 0 or city_budget <= 0 or city_exhausted:
                 break
             try:
                 candidates = places.search_text(query, max_results=args.per_city_search,
@@ -463,6 +481,11 @@ def main() -> int:
             for place_id in fresh:
                 if remaining <= 0 or city_budget <= 0:
                     break
+                if args.city_give_up and barren >= args.city_give_up:
+                    print(f"  · {city_name}: no fresh lead in last {barren} candidates "
+                          f"— city looks mined out, moving on")
+                    city_exhausted = True
+                    break
                 if place_id in seen:
                     continue
                 seen.add(place_id)
@@ -471,6 +494,7 @@ def main() -> int:
                 # 3. dedup on place id (skip the details call entirely when known)
                 if store and store.place_exists(place_id):
                     stats["skipped_dup"] += 1
+                    barren += 1  # in-city venue already imported — exhaustion signal
                     continue
 
                 try:
@@ -512,6 +536,7 @@ def main() -> int:
                 email = email_crawler.find(place.get("websiteUri"))
                 if not email:
                     stats["no_email"] += 1
+                    barren += 1  # in-city venue, no reachable email — exhaustion signal
                     print(f"  - {name}: no email (skip)")
                     if store:
                         store.log_outreach(email="unknown@" + (place.get("websiteUri") or "no-site"),
@@ -521,6 +546,7 @@ def main() -> int:
                 # 5. dedup on already-emailed
                 if store and store.email_already_contacted(email):
                     stats["skipped_emailed"] += 1
+                    barren += 1  # in-city venue already emailed — exhaustion signal
                     print(f"  - {name}: {email} already contacted (skip)")
                     continue
 
@@ -534,6 +560,7 @@ def main() -> int:
                           f" geo={payload['lat']:.4f},{payload['lng']:.4f} ({geo_reason})")
                     remaining -= 1
                     city_budget -= 1
+                    barren = 0  # fresh emailable lead — city is still productive
                     continue
 
                 # 7-8. insert (hidden, with fallback hero) — trigger mints the
@@ -588,6 +615,7 @@ def main() -> int:
 
                 remaining -= 1
                 city_budget -= 1
+                barren = 0  # found + processed a fresh emailable lead
 
         # Whatever this city couldn't fill rolls forward to the next one.
         carry = max(0, city_budget)

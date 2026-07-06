@@ -29,8 +29,10 @@ EMAIL_RE = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
 MAILTO_RE = re.compile(r'mailto:([^"\'?>\s]+)', re.IGNORECASE)
 
 # Paths to try if the homepage has no email. Romanian + English variants.
-CONTACT_PATHS = ["", "contact", "contacte", "contact-us", "kontakt",
-                 "despre", "about", "rezervari", "reservations"]
+# Kept short on purpose: every extra path is another (often slow/dead) HTTP
+# fetch, and on a website-less-heavy corpus that per-site cost is what eats the
+# run's time budget. These cover the overwhelming majority of real hits.
+CONTACT_PATHS = ["", "contact", "contacte", "contact-us", "despre"]
 
 # Domains/substrings that are never a real contact address.
 JUNK_DOMAINS = (
@@ -101,20 +103,20 @@ def _score(email: str, site_host: str) -> int:
     return s
 
 
-def _fetch(url: str, timeout: float = 8.0) -> str | None:
-    for attempt in range(2):
-        try:
-            resp = requests.get(
-                url, headers={"User-Agent": UA}, timeout=timeout,
-                allow_redirects=True,
-            )
-            ctype = resp.headers.get("Content-Type", "")
-            if resp.status_code == 200 and "html" in ctype.lower():
-                return resp.text
-            return None
-        except requests.RequestException:
-            if attempt == 0:
-                continue
+def _fetch(url: str, timeout: float = 6.0) -> str | None:
+    # Single attempt, short timeout: a dead/slow site should cost us seconds, not
+    # tens of seconds. Losing the retry trims a little hit-rate but lets the run
+    # cover far more venues per hour (the real bottleneck), which nets more leads.
+    try:
+        resp = requests.get(
+            url, headers={"User-Agent": UA}, timeout=timeout,
+            allow_redirects=True,
+        )
+        ctype = resp.headers.get("Content-Type", "")
+        if resp.status_code == 200 and "html" in ctype.lower():
+            return resp.text
+    except requests.RequestException:
+        return None
     return None
 
 
@@ -125,7 +127,11 @@ def find(website_url: str | None) -> str | None:
     if not website_url:
         return None
     parsed = urlparse(website_url if "://" in website_url else "https://" + website_url)
-    site_host = (parsed.netloc or "").lower().lstrip("www.")
+    # NB: str.lstrip("www.") strips any leading run of the chars {w,.} — it would
+    # turn "wine-bar.ro" into "ine-bar.ro". Remove the "www." *prefix* only.
+    site_host = (parsed.netloc or "").lower()
+    if site_host.startswith("www."):
+        site_host = site_host[4:]
     base = f"{parsed.scheme or 'https'}://{parsed.netloc}"
 
     candidates: list[str] = []
