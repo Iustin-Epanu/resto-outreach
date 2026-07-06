@@ -29,9 +29,11 @@ DETAILS_FIELDS = ",".join([
     "googleMapsUri", "businessStatus", "outdoorSeating",
 ])
 
-# Search only needs ids + a couple of cheap fields to pre-filter.
+# Search only needs ids + a couple of cheap fields to pre-filter (incl.
+# primaryType so the retail/accommodation filters can act before the paid
+# details call).
 SEARCH_FIELDS = ",".join([
-    "places.id", "places.displayName", "places.types",
+    "places.id", "places.displayName", "places.types", "places.primaryType",
     "places.businessStatus", "nextPageToken",
 ])
 

@@ -418,9 +418,9 @@ def main() -> int:
         from db import Store
         store = Store()
 
-    stats = {"discovered": 0, "retail_skipped": 0, "skipped_dup": 0,
-             "geo_skipped": 0, "no_email": 0, "skipped_emailed": 0,
-             "inserted": 0, "sent": 0, "failed": 0}
+    stats = {"discovered": 0, "retail_skipped": 0, "accommodation_skipped": 0,
+             "skipped_dup": 0, "geo_skipped": 0, "no_email": 0,
+             "skipped_emailed": 0, "inserted": 0, "sent": 0, "failed": 0}
     target = args.max
     remaining = target
     seen: set[str] = set()  # place ids handled this run (dedup across query angles)
@@ -469,10 +469,17 @@ def main() -> int:
                 cid = c.get("id")
                 if not cid or cid in seen:
                     continue
-                excluded, why = filters.is_excluded(filters.candidate_name(c), c.get("types"))
+                cname = filters.candidate_name(c)
+                excluded, why = filters.is_excluded(cname, c.get("types"))
                 if excluded:
                     seen.add(cid)
                     stats["retail_skipped"] += 1
+                    continue
+                acc, why = filters.is_accommodation(cname, c.get("types"),
+                                                    c.get("primaryType"))
+                if acc:
+                    seen.add(cid)
+                    stats["accommodation_skipped"] += 1
                     continue
                 fresh.append(cid)
             print(f"  [{query}] {len(candidates)} found, {len(fresh)} new "
@@ -517,6 +524,16 @@ def main() -> int:
                     print(f"  - {name}: retail/mall — {why} (skip)")
                     continue
 
+                # Accommodation guard (types + primaryType + Google description).
+                # The email adds a 4th signal below, once we've crawled it.
+                place_desc = (place.get("editorialSummary") or {}).get("text")
+                acc, why = filters.is_accommodation(
+                    name, place.get("types"), place.get("primaryType"), place_desc)
+                if acc:
+                    stats["accommodation_skipped"] += 1
+                    print(f"  - {name}: accommodation — {why} (skip)")
+                    continue
+
                 # 3b. geo guard — text search is fuzzy and drifts across cities,
                 #     so a venue only imports if its coordinates say it really
                 #     is in the city we searched (nearest centroid + radius).
@@ -541,6 +558,16 @@ def main() -> int:
                     if store:
                         store.log_outreach(email="unknown@" + (place.get("websiteUri") or "no-site"),
                                            status="no_email", city=city_slug)
+                    continue
+
+                # 4b. accommodation guard, now with the crawled email — the
+                #     strongest litoral tell (hotel@/reception@/…@x-hotel.ro).
+                acc, why = filters.is_accommodation(
+                    name, place.get("types"), place.get("primaryType"),
+                    place_desc, email)
+                if acc:
+                    stats["accommodation_skipped"] += 1
+                    print(f"  - {name}: accommodation (by email) — {why} (skip)")
                     continue
 
                 # 5. dedup on already-emailed

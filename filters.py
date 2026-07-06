@@ -83,3 +83,135 @@ def is_excluded(name: str | None, types) -> tuple[bool, str | None]:
 def candidate_name(candidate: dict) -> str | None:
     """displayName.text from a Places search candidate or details dict."""
     return (candidate.get("displayName") or {}).get("text")
+
+
+# --------------------------------------------------------------------------- #
+# Accommodation filter                                                         #
+# --------------------------------------------------------------------------- #
+# Resto is a *walk-in dining* signal — hotels, pensiuni, vile, hostels and
+# campings are not venues we ever want, even when they run a restaurant/terrace.
+# On the litoral this is the single biggest source of junk: half the "restaurant
+# with terrace" results in a resort town are really an accommodation's terrace.
+#
+# No single signal is reliable on its own (a pensiune's terrace can be typed
+# `restaurant`; a real restaurant can sit next to a hotel), so we combine four:
+#   1. Places type — `primaryType` in the lodging family is decisive; a lodging
+#      type only in the secondary `types[]` counts unless the primary is clearly
+#      food (protects a real restaurant that carries a stray `lodging` tag).
+#   2. Name keywords — hotel / motel / pensiune / vilă / resort / camping / …
+#   3. The crawled contact email — localpart or domain containing hotel /
+#      pension / cazare / recept(ie) / … (catches "hotel@x.ro",
+#      "reception@x.ro", "amphorahotel@gmail.com" that have no other tell).
+#   4. Google's own description — corroborating "cazare / rooms / overnight / …".
+
+ACCOMMODATION_TYPES = {
+    "lodging", "hotel", "motel", "resort_hotel", "extended_stay_hotel",
+    "bed_and_breakfast", "guest_house", "hostel", "inn", "cottage",
+    "campground", "camping_cabin", "rv_park", "farmstay", "japanese_inn",
+    "budget_japanese_inn", "private_guest_room", "mobile_home_park",
+    "apartment_complex", "apartment_building",
+}
+
+# Food-service primary types — if a place is PRIMARILY one of these we don't let
+# a stray secondary `lodging` tag alone exclude it (needs a name/email/desc tell).
+_FOOD_PRIMARY_TYPES = {
+    "restaurant", "cafe", "coffee_shop", "bakery", "bar", "pub", "wine_bar",
+    "bar_and_grill", "meal_takeaway", "meal_delivery", "fast_food_restaurant",
+    "ice_cream_shop", "dessert_shop", "food_court", "fine_dining_restaurant",
+    "cafeteria", "deli", "diner", "steak_house", "brunch_restaurant",
+    "breakfast_restaurant",
+}
+
+
+def _is_food_primary(primary_type: str) -> bool:
+    pt = (primary_type or "").lower()
+    return pt in _FOOD_PRIMARY_TYPES or pt.endswith("_restaurant")
+
+
+# Decisive accommodation name keywords (RO + EN). Leading \b + prefix match so
+# "hotelul"/"pensiunea"/"campingul" are caught; vilă/villa are boundary-anchored
+# so "Vilamar" (a name) doesn't trip. `casa`/`complex` are deliberately absent —
+# too many real restaurants use them.
+_ACCOM_NAME = re.compile(
+    r"\b("
+    r"hotel\w*|motel\w*|hostel\w*|aparthotel\w*|apart[-\s]hotel|"
+    r"pensiun\w*|"                                  # pensiune / pensiunea / pensiuni
+    r"guest[-\s]?house|b&b|bed\s+and\s+breakfast|"
+    r"camping\w*|caban[aăe]\w*|bungalow\w*|"
+    r"casa\s+de\s+vacan[țt]\w*|"
+    r"cazare|camere\s+de\s+(inchiriat|închiriat)|"
+    r"resort\w*|villa\b|vil[aă]\b"
+    r")",
+    re.IGNORECASE,
+)
+
+# Substrings that, in an email localpart OR domain, mark an accommodation.
+# `rezervari`/`reservations` are intentionally NOT here — restaurants use them.
+_ACCOM_EMAIL_HINTS = (
+    "hotel", "motel", "hostel", "pension", "pensiune", "cazare", "recept",
+    "aparthotel", "camping", "guesthouse",
+)
+
+# Description phrases that, in the venue's OWN Google description, are decisive
+# (a place that describes itself as offering lodging is an accommodation).
+_ACCOM_DESC_STRONG = (
+    "cazare", "camere de inchiriat", "camere de închiriat", "rooms available",
+    "overnight stay", "bed and breakfast", "self-catering", "guest house",
+    "guesthouse", "accommodation", "pensiune",
+)
+# Weaker phrases — only decisive when a lodging type is also present ("hotel"
+# alone can mean "near the hotel"; "nights"/"check-in" are ambiguous).
+_ACCOM_DESC_WEAK = ("hotel", "camere", "overnight", "nights", "check-in", "rooms")
+
+
+def is_accommodation(name, types, primary_type=None, description=None,
+                     email=None) -> tuple[bool, str | None]:
+    """
+    Is this venue really an accommodation (hotel/pensiune/vilă/hostel/camping),
+    rather than a standalone restaurant/café/bar? Returns (excluded, reason).
+
+    Pass whatever you have: at the search stage that's (name, types,
+    primary_type); after details add `description`; after the email crawl add
+    `email` — each extra signal catches cases the others miss.
+    """
+    tset = {t for t in (types or [])}
+    pt = (primary_type or "").lower()
+
+    # 1. Primary type is lodging -> decisive.
+    if pt in ACCOMMODATION_TYPES:
+        return True, f"primary type {pt!r}"
+
+    # 2. Decisive name keyword.
+    if name:
+        m = _ACCOM_NAME.search(name)
+        if m:
+            return True, f"name keyword {m.group(0)!r}"
+
+    # 3. Email localpart/domain tells (strong on the litoral).
+    if email and "@" in email:
+        local, _, dom = email.lower().partition("@")
+        if any(h in local for h in _ACCOM_EMAIL_HINTS):
+            return True, f"email localpart {local!r}"
+        if any(h in dom for h in _ACCOM_EMAIL_HINTS):
+            return True, f"email domain {dom!r}"
+
+    # 4. The venue's own description says it offers lodging -> decisive.
+    if description:
+        d = description.lower()
+        hit = next((h for h in _ACCOM_DESC_STRONG if h in d), None)
+        if hit:
+            return True, f"description {hit!r}"
+
+    # 5. Lodging in the secondary types and the place is not primarily food.
+    accom_types = tset & ACCOMMODATION_TYPES
+    if accom_types and not _is_food_primary(pt):
+        return True, f"lodging type {sorted(accom_types)}"
+
+    # 6. Corroboration: a lodging tag (even under a food primary) plus a weaker
+    #    description tell.
+    if description and accom_types:
+        d = description.lower()
+        if any(h in d for h in _ACCOM_DESC_WEAK):
+            return True, "lodging type + accommodation description"
+
+    return False, None
