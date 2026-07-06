@@ -98,7 +98,9 @@ def candidate_name(candidate: dict) -> str | None:
 #   1. Places type — `primaryType` in the lodging family is decisive; a lodging
 #      type only in the secondary `types[]` counts unless the primary is clearly
 #      food (protects a real restaurant that carries a stray `lodging` tag).
-#   2. Name keywords — hotel / motel / pensiune / vilă / resort / camping / …
+#   2. Name keywords — hotel / motel / pensiune / camping / cabană / … are
+#      decisive; vilă / resort are "soft" (too common on real restaurants) and
+#      only bite when a second signal (below) confirms lodging.
 #   3. The crawled contact email — localpart or domain containing hotel /
 #      pension / cazare / recept(ie) / … (catches "hotel@x.ro",
 #      "reception@x.ro", "amphorahotel@gmail.com" that have no other tell).
@@ -129,9 +131,10 @@ def _is_food_primary(primary_type: str) -> bool:
 
 
 # Decisive accommodation name keywords (RO + EN). Leading \b + prefix match so
-# "hotelul"/"pensiunea"/"campingul" are caught; vilă/villa are boundary-anchored
-# so "Vilamar" (a name) doesn't trip. `casa`/`complex` are deliberately absent —
-# too many real restaurants use them.
+# "hotelul"/"pensiunea"/"campingul" are caught. `casa`/`complex` are deliberately
+# absent — too many real restaurants use them. `vila`/`resort` are NOT here
+# either: they're too common in restaurant names, so they're demoted to the soft
+# set below and only bite with a second, lodging-confirming signal.
 _ACCOM_NAME = re.compile(
     r"\b("
     r"hotel\w*|motel\w*|hostel\w*|aparthotel\w*|apart[-\s]hotel|"
@@ -139,11 +142,18 @@ _ACCOM_NAME = re.compile(
     r"guest[-\s]?house|b&b|bed\s+and\s+breakfast|"
     r"camping\w*|caban[aăe]\w*|bungalow\w*|"
     r"casa\s+de\s+vacan[țt]\w*|"
-    r"cazare|camere\s+de\s+(inchiriat|închiriat)|"
-    r"resort\w*|villa\b|vil[aă]\b"
+    r"cazare|camere\s+de\s+(inchiriat|închiriat)"
     r")",
     re.IGNORECASE,
 )
+
+# Soft accommodation name words. Common on the coast but also on genuine
+# restaurants ("Vila Rustica Restaurant", "X Beach Resort"), so a match alone is
+# NOT enough — is_accommodation() excludes only when a SECOND signal confirms
+# lodging: Google's own Places classification (a lodging type on the place), an
+# accommodation email, or an accommodation description. vilă/villa are boundary-
+# anchored so "Vilamar" doesn't trip.
+_ACCOM_NAME_SOFT = re.compile(r"\b(vil[aă]\b|villa\b|resort\w*)", re.IGNORECASE)
 
 # Substrings that, in an email localpart OR domain, mark an accommodation.
 # `rezervari`/`reservations` are intentionally NOT here — restaurants use them.
@@ -176,12 +186,14 @@ def is_accommodation(name, types, primary_type=None, description=None,
     """
     tset = {t for t in (types or [])}
     pt = (primary_type or "").lower()
+    accom_types = tset & ACCOMMODATION_TYPES     # Google-Maps lodging tell
+    desc = (description or "").lower()
 
-    # 1. Primary type is lodging -> decisive.
+    # 1. Primary type is lodging -> decisive (Google classifies it as lodging).
     if pt in ACCOMMODATION_TYPES:
         return True, f"primary type {pt!r}"
 
-    # 2. Decisive name keyword.
+    # 2. Decisive name keyword (hotel/pensiune/camping/…; NOT vila/resort).
     if name:
         m = _ACCOM_NAME.search(name)
         if m:
@@ -196,22 +208,31 @@ def is_accommodation(name, types, primary_type=None, description=None,
             return True, f"email domain {dom!r}"
 
     # 4. The venue's own description says it offers lodging -> decisive.
-    if description:
-        d = description.lower()
-        hit = next((h for h in _ACCOM_DESC_STRONG if h in d), None)
+    if desc:
+        hit = next((h for h in _ACCOM_DESC_STRONG if h in desc), None)
         if hit:
             return True, f"description {hit!r}"
 
     # 5. Lodging in the secondary types and the place is not primarily food.
-    accom_types = tset & ACCOMMODATION_TYPES
     if accom_types and not _is_food_primary(pt):
         return True, f"lodging type {sorted(accom_types)}"
 
-    # 6. Corroboration: a lodging tag (even under a food primary) plus a weaker
+    # 6. Soft name (vila/resort) — exclude ONLY with a second signal confirming
+    #    it's really lodging, not a restaurant that happens to be named "Vila":
+    #    a Google Places lodging type on the place, or an accommodation word in
+    #    its own description. (An accommodation email already matched at step 3.)
+    soft = _ACCOM_NAME_SOFT.search(name or "")
+    if soft:
+        if accom_types:
+            return True, (f"soft name {soft.group(0)!r} + Google lodging type "
+                          f"{sorted(accom_types)}")
+        hit = next((h for h in (_ACCOM_DESC_STRONG + _ACCOM_DESC_WEAK) if h in desc), None)
+        if hit:
+            return True, f"soft name {soft.group(0)!r} + description {hit!r}"
+
+    # 7. Corroboration: a lodging tag (even under a food primary) plus a weaker
     #    description tell.
-    if description and accom_types:
-        d = description.lower()
-        if any(h in d for h in _ACCOM_DESC_WEAK):
-            return True, "lodging type + accommodation description"
+    if accom_types and any(h in desc for h in _ACCOM_DESC_WEAK):
+        return True, "lodging type + accommodation description"
 
     return False, None
