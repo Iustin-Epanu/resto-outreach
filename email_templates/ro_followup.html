@@ -1,0 +1,133 @@
+<!--
+  FOLLOW-UP email (v1) — sent ~3 zile după ce restaurantul își activează pagina.
+  Oferta: conectează POS-ul ca să afișezi capacitatea în timp real (mese libere acum).
+  Subiect recomandat: {{venue_name}}: pasul următor — arată câte mese ai libere ACUM
+
+  >>> EDITEAZĂ LIBER TEXTUL DE MAI JOS. <<<
+  Placeholders disponibile: {{venue_name}}, {{sender_name}}, {{unsubscribe_url}},
+  și cardul de autentificare (injectat la markerul CREDS de mai jos; gol dacă
+  restaurantul nu are credențiale provizionate). {{login_url}} e linkul de login.
+-->
+<!DOCTYPE html>
+<html lang="ro">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Resto — pasul următor pentru {{venue_name}}</title>
+  </head>
+  <body style="margin:0;padding:0;background:#faf7f2;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#1a1a1a;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#faf7f2;padding:32px 0;">
+      <tr>
+        <td align="center">
+
+          <!-- Card principal -->
+          <table role="presentation" width="540" cellpadding="0" cellspacing="0" style="max-width:540px;background:#ffffff;border-radius:16px;overflow:hidden;border:1px solid #eee;">
+
+            <!-- Header brand -->
+            <tr>
+              <td style="background:#e23b2e;padding:18px 32px;">
+                <span style="font-size:20px;font-weight:800;color:#ffffff;letter-spacing:-0.5px;">Resto</span>
+                <span style="font-size:13px;color:rgba(255,255,255,0.75);margin-left:8px;">pentru localuri</span>
+              </td>
+            </tr>
+
+            <!-- Body -->
+            <tr>
+              <td style="padding:32px 32px 0 32px;">
+
+                <!-- Greeting -->
+                <p style="margin:0 0 20px 0;font-size:22px;font-weight:700;color:#1a1a1a;">
+                  Felicitări, {{venue_name}} 🎉
+                </p>
+
+                <!-- Recap: pagina e live -->
+                <p style="margin:0 0 16px 0;font-size:15px;line-height:1.65;color:#333;">
+                  Pagina ta e activă pe Resto și deja poți fi găsit. Perfect,
+                  acum urmează partea care aduce cu adevărat clienți la ușă.
+                </p>
+
+                <!-- Oferta: conectează POS-ul -->
+                <p style="margin:0 0 16px 0;font-size:15px;line-height:1.65;color:#333;">
+                  Momentan pagina ta e statică. Următorul pas e să
+                  <strong>conectăm sistemul POS</strong> — astfel Resto arată
+                  în timp real <strong>câte mese ai libere chiar acum</strong>. Utilizatorii
+                  care caută unde să meargă în seara asta văd un semnal „loc liber acum”
+                  și vin direct la tine.
+                </p>
+
+                <!-- De ce contează -->
+                <p style="margin:0 0 24px 0;font-size:15px;line-height:1.65;color:#333;">
+                  O pagină statică te pune pe hartă. Capacitatea live te pune
+                  <em>în fața clienților</em> exact în momentul în care cineva decide unde mănâncă.
+                </p>
+
+                <!-- Raspunde -->
+                <p style="margin:0 0 24px 0;font-size:15px;line-height:1.65;color:#333;">
+                  Conectarea e ușor de realizat și ne ocupăm noi - răspunde la
+                  acest email cu un număr de telefon sau altă formă de contact și POS-ul folosit
+                  pentru a continua.
+                </p>
+
+                <!-- Scarcity -->
+                <p style="margin:0 0 24px 0;font-size:15px;line-height:1.65;color:#333;">
+                  Până pe 20 iulie avem de gând să oferim contracte gratuite pentru primele restaurante
+                  care vor o integrare cu noi. Nu rata oferta având în vedere că 
+                  pagina restaurantului e deja pe site și
+                  hai să îți mărim clienteala.
+                </p>
+
+              </td>
+            </tr>
+
+            <!-- Callout box -->
+            <tr>
+              <td style="padding:0 32px 24px 32px;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+                       style="background:#fff8f2;border-radius:12px;border-left:4px solid #e23b2e;padding:0;">
+                  <tr>
+                    <td style="padding:16px 20px;">
+                      <p style="margin:0;font-size:14px;line-height:1.6;color:#444;">
+                        <strong>Ce câștigi conectând POS-ul:</strong><br />
+                        • Semnale live cu numărul de mese, vizibil pentru clienți.<br />
+                        • Apari primul când cineva caută unde să meargă imediat.<br />
+                        • Umpli mesele goale din orele slabe, fără efort manual.<br />
+                      </p>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+
+            <!-- CTA -->
+            <tr>
+              <td align="center" style="padding:0 32px 32px 32px;">
+                <a href="#"
+                   style="display:inline-block;background:#e23b2e;color:#ffffff;text-decoration:none;font-weight:700;font-size:16px;padding:15px 32px;border-radius:12px;letter-spacing:-0.2px;">
+                  Răspunde la acest email și discutăm oferta
+                </a>
+              </td>
+            </tr>
+
+            <!-- Manager login credentials (injected only when provisioned) -->
+            <!--CREDS_START-->{{credentials_block}}<!--CREDS_END-->
+
+
+          </table>
+
+          <!-- Footer -->
+          <table role="presentation" width="540" cellpadding="0" cellspacing="0" style="max-width:540px;padding:16px 32px;">
+            <tr>
+              <td style="font-size:11px;line-height:1.6;color:#bbb;text-align:center;">
+                {{sender_name}} · Cluj-Napoca, România<br />
+                Primești acest email pentru că restaurantul tău are o pagină activă pe Resto.<br />
+                Dacă nu dorești să te mai contactăm,
+                <a href="{{unsubscribe_url}}" style="color:#bbb;">dezabonează-te aici</a>.
+              </td>
+            </tr>
+          </table>
+
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>

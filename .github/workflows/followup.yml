@@ -1,0 +1,74 @@
+name: Onboarding follow-up
+
+# Sends the "connect your POS" follow-up ~3 days after a venue goes live
+# (redeems its go-live link). Detects onboarded outreach venues, stamps each on
+# first sight, and emails the ones past the delay via Brevo. Fully automatic and
+# idempotent — each venue is followed up at most once.
+#
+# Required repo secrets (shared with the outreach workflow):
+#   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY,
+#   BREVO_API_KEY, BREVO_SENDER_EMAIL, PUBLIC_BASE_URL
+# Optional: BREVO_UNSUBSCRIBE_URL
+#
+# ONE-TIME: run migrations/2026-07-08-followup.sql in the Supabase SQL editor
+# before the first run, then dispatch once with backfill=true to clear the
+# existing already-live venues. After that the daily schedule handles new
+# onboards on the 3-day delay.
+
+on:
+  workflow_dispatch:
+    inputs:
+      delay_days:
+        description: "Days after go-live before the follow-up sends"
+        default: "3"
+      max:
+        description: "Max follow-ups to send this run (safety cap)"
+        default: "300"
+      backfill:
+        description: "true = send every pending venue now, ignoring the delay (initial catch-up)"
+        default: "false"
+      dry_run:
+        description: "true = detect + choose recipients only, no DB write / no send"
+        default: "false"
+  schedule:
+    - cron: "0 8 * * *" # daily 08:00 UTC, an hour after the outreach run
+
+# Never let two follow-up runs email concurrently.
+concurrency:
+  group: onboarding-followup
+  cancel-in-progress: false
+
+jobs:
+  followup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run follow-up pipeline
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          BREVO_API_KEY: ${{ secrets.BREVO_API_KEY }}
+          BREVO_SENDER_EMAIL: ${{ secrets.BREVO_SENDER_EMAIL }}
+          BREVO_SENDER_NAME: "Resto"
+          BREVO_UNSUBSCRIBE_URL: ${{ secrets.BREVO_UNSUBSCRIBE_URL }}
+          PUBLIC_BASE_URL: ${{ secrets.PUBLIC_BASE_URL }}
+          DELAY_DAYS: ${{ github.event.inputs.delay_days || '3' }}
+          MAX_FOLLOWUPS: ${{ github.event.inputs.max || '300' }}
+          BACKFILL: ${{ github.event.inputs.backfill || 'false' }}
+          DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+        run: |
+          FLAGS="--delay-days $DELAY_DAYS --max $MAX_FOLLOWUPS"
+          if [ "$BACKFILL" = "true" ]; then FLAGS="$FLAGS --backfill"; fi
+          if [ "$DRY_RUN" = "true" ]; then FLAGS="$FLAGS --dry-run"; fi
+          python followup.py $FLAGS

@@ -26,6 +26,31 @@ search (Places) → details → dedup(place_id) → GEO GUARD (right city?)
 Email is **required** — a venue with no discoverable email is skipped (logged
 `no_email`), never imported.
 
+## Onboarding follow-up (`followup.py`)
+
+A second, independent pipeline that runs the **"connect your POS" upsell** ~3
+days after a venue **onboards** (opens its go-live link → `visible=true`). The
+initial outreach gives them a free static page; this nudges them to the next
+step: connect their POS so Resto shows **live table capacity**.
+
+```
+find live outreach venues (visible=true + contact_email)
+  → stamp each on first sight in `onboarding_followup` (detected_live_at=now())
+  → pick the ones past --delay-days (default 3; --backfill sends all pending now)
+  → skip any that already connected POS → Brevo send (RO, + login card) → mark row
+```
+
+There is **no go-live timestamp** in the DB (redeeming the link just flips
+`visible` and deletes the golive row), so `onboarding_followup` supplies that
+missing signal. Its primary key is `restaurant_id` and only `pending` rows are
+ever sent, so each venue is followed up **at most once**. Runs daily via
+`.github/workflows/followup.yml` (08:00 UTC, an hour after outreach) plus manual
+dispatch. Edit `email_templates/ro_followup.html` to change the offer copy.
+
+**Initial catch-up:** dispatch once with `backfill=true` to email venues that
+were already live before this automation existed; the daily run respects the
+3-day delay for everything after.
+
 **Cities & priorities** — `--cities all` (the default, also for scheduled runs)
 targets every city in `web/src/lib/cities.ts`. `PRIORITY_CITIES` (cluj-napoca,
 bucuresti, iasi, timisoara, brasov) split 70% of the run's send target; the
@@ -53,6 +78,7 @@ imports.
 | File | Role |
 |------|------|
 | `run.py` | Orchestrator / entrypoint (`--cities`, `--max`, `--dry-run`) |
+| `followup.py` | Onboarding follow-up entrypoint (`--delay-days`, `--backfill`, `--max`, `--dry-run`) |
 | `places.py` | Google Places API (New): search, details, photos, hours, coords |
 | `geo.py` | City centroids (mirror of `web/src/lib/cities.ts`) + import-time geo guard |
 | `email_crawler.py` | Crawl the venue website for a contact email |
@@ -60,7 +86,9 @@ imports.
 | `inference.py` | Cuisine keyword fallback, bilingual copy, fallback imagery |
 | `db.py` | Supabase service-role layer (insert, storage, go-live token, manager provisioning, log) |
 | `brevo.py` + `email_templates/ro.html` | Romanian email (go-live + login credentials) |
+| `email_templates/ro_followup.html` | Romanian follow-up email (connect-POS offer) |
 | `migrations/2026-06-26-outreach.sql` | One-time DB setup (run in Supabase) |
+| `migrations/2026-07-08-followup.sql` | One-time DB setup for the follow-up (`onboarding_followup` table) |
 
 ## One-time setup
 
@@ -72,6 +100,8 @@ imports.
    `restaurants.email` login column, the `manager_credentials` table, and a
    `manager`-role `users` row when provisioning each venue's login. If §12 isn't
    applied yet, run it first (see `web/src/data/schema.sql`).
+   Also run `migrations/2026-07-08-followup.sql` (adds the `onboarding_followup`
+   table used by `followup.py`). *(Already applied to the live Resto project.)*
 2. **Google Maps API key** — enable *Places API (New)* in Google Cloud; restrict
    the key to that API.
 3. **Brevo** — verify a sender domain (SPF/DKIM) before any real send, or

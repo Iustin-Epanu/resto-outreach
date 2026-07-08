@@ -17,6 +17,7 @@ import os
 import re
 import secrets
 import time
+from datetime import datetime, timezone
 
 from supabase import create_client, Client
 
@@ -173,6 +174,105 @@ class Store:
         ).execute()
 
         return email, password
+
+    # --- onboarding follow-up ("connect your POS", ~3 days after go-live) ----- #
+    def find_onboarded_outreach_venues(self) -> list[dict]:
+        """
+        Outreach venues that have gone live: visible=true and carry a
+        contact_email (the crawler always sets one, so this scopes to venues we
+        imported + emailed, excluding hand-seeded catalog rows). Paged to cover
+        the full catalog. Returns id/name/email/city/pos_enabled per venue.
+        """
+        rows: list[dict] = []
+        page = 0
+        size = 1000
+        while True:
+            res = (self.client.table("restaurants")
+                   .select("id, name, contact_email, city, pos_enabled")
+                   .eq("visible", True)
+                   .not_.is_("contact_email", "null")
+                   .range(page * size, page * size + size - 1)
+                   .execute())
+            batch = res.data or []
+            rows.extend(batch)
+            if len(batch) < size:
+                break
+            page += 1
+        return [{"restaurant_id": r["id"], "name": r["name"],
+                 "email": r["contact_email"], "city": r.get("city"),
+                 "pos_enabled": bool(r.get("pos_enabled"))} for r in rows]
+
+    def record_onboarding_detections(self, rows: list[dict]) -> int:
+        """
+        Stamp each onboarded venue into onboarding_followup the FIRST time it is
+        seen live (detected_live_at defaults to now()). Idempotent: existing rows
+        are left untouched, so detected_live_at / followup_status never regress.
+        `rows` items need restaurant_id + email. Returns the number newly stamped.
+        """
+        if not rows:
+            return 0
+        existing = self._existing_followup_ids([r["restaurant_id"] for r in rows])
+        fresh = [{"restaurant_id": r["restaurant_id"], "email": r["email"]}
+                 for r in rows if r["restaurant_id"] not in existing]
+        for i in range(0, len(fresh), 500):
+            chunk = fresh[i:i + 500]
+            if chunk:
+                self.client.table("onboarding_followup").upsert(
+                    chunk, on_conflict="restaurant_id", ignore_duplicates=True,
+                ).execute()
+        return len(fresh)
+
+    def _existing_followup_ids(self, ids: list[str]) -> set[str]:
+        seen: set[str] = set()
+        for i in range(0, len(ids), 100):
+            chunk = ids[i:i + 100]
+            if not chunk:
+                continue
+            res = (self.client.table("onboarding_followup")
+                   .select("restaurant_id")
+                   .in_("restaurant_id", chunk)
+                   .execute())
+            seen.update(row["restaurant_id"] for row in (res.data or []))
+        return seen
+
+    def pending_followups(self) -> list[dict]:
+        """All onboarding_followup rows still awaiting a send (status=pending)."""
+        res = (self.client.table("onboarding_followup")
+               .select("restaurant_id, email, detected_live_at")
+               .eq("followup_status", "pending")
+               .execute())
+        return res.data or []
+
+    def get_manager_credentials(self, restaurant_id: str) -> tuple[str | None, str | None]:
+        """Read the plaintext manager login provisioned at initial outreach."""
+        res = (self.client.table("manager_credentials")
+               .select("email, password")
+               .eq("restaurant_id", restaurant_id)
+               .limit(1)
+               .execute())
+        if res.data:
+            return res.data[0]["email"], res.data[0]["password"]
+        return None, None
+
+    def venue_pos_enabled(self, restaurant_id: str) -> bool:
+        """Fresh pos_enabled read, to skip venues that connected POS meanwhile."""
+        res = (self.client.table("restaurants")
+               .select("pos_enabled")
+               .eq("id", restaurant_id)
+               .limit(1)
+               .execute())
+        return bool(res.data and res.data[0].get("pos_enabled"))
+
+    def mark_followup(self, restaurant_id: str, status: str, *,
+                      brevo_message_id: str | None = None,
+                      error: str | None = None) -> None:
+        self.client.table("onboarding_followup").update({
+            "followup_status": status,
+            "followup_sent_at": (datetime.now(timezone.utc).isoformat()
+                                 if status == "sent" else None),
+            "brevo_message_id": brevo_message_id,
+            "error": error,
+        }).eq("restaurant_id", restaurant_id).execute()
 
     def log_outreach(self, *, email: str, status: str, restaurant_id: str | None = None,
                      brevo_message_id: str | None = None, error: str | None = None,
