@@ -1,6 +1,6 @@
 name: Onboarding follow-up
 
-# Sends the "connect your POS" follow-up ~3 days after a venue goes live
+# Sends the "connect your POS" follow-up ~1 day after a venue goes live
 # (redeems its go-live link). Detects onboarded outreach venues, stamps each on
 # first sight, and emails the ones past the delay via Brevo. Fully automatic and
 # idempotent — each venue is followed up at most once.
@@ -13,14 +13,14 @@ name: Onboarding follow-up
 # ONE-TIME: run migrations/2026-07-08-followup.sql in the Supabase SQL editor
 # before the first run, then dispatch once with backfill=true to clear the
 # existing already-live venues. After that the daily schedule handles new
-# onboards on the 3-day delay.
+# onboards on the 1-day delay.
 
 on:
   workflow_dispatch:
     inputs:
       delay_days:
         description: "Days after go-live before the follow-up sends"
-        default: "3"
+        default: "1"
       max:
         description: "Max follow-ups to send this run (safety cap)"
         default: "300"
@@ -63,7 +63,7 @@ jobs:
           BREVO_SENDER_NAME: "Resto"
           BREVO_UNSUBSCRIBE_URL: ${{ secrets.BREVO_UNSUBSCRIBE_URL }}
           PUBLIC_BASE_URL: ${{ secrets.PUBLIC_BASE_URL }}
-          DELAY_DAYS: ${{ github.event.inputs.delay_days || '3' }}
+          DELAY_DAYS: ${{ github.event.inputs.delay_days || '1' }}
           MAX_FOLLOWUPS: ${{ github.event.inputs.max || '300' }}
           BACKFILL: ${{ github.event.inputs.backfill || 'false' }}
           DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}

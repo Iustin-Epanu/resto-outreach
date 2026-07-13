@@ -4,14 +4,14 @@ Onboarding follow-up pipeline — the "connect your POS" upsell.
 
 Companion to run.py. run.py imports hidden venues and emails a go-live link;
 when the manager opens that link the venue flips visible=true (it "onboards").
-This script sends ONE follow-up email ~3 days later, pitching the next step:
+This script sends ONE follow-up email ~1 day later, pitching the next step:
 connect the POS so Resto shows live table capacity.
 
 Flow (all service-role, RLS-bypassing, via db.Store):
   1. Find onboarded outreach venues (visible=true + contact_email set).
   2. Stamp each into onboarding_followup the first time it's seen live
      (detected_live_at = now()). Idempotent — never re-stamps.
-  3. Pick the ones due: detected_live_at older than --delay-days (default 3),
+  3. Pick the ones due: detected_live_at older than --delay-days (default 1),
      unless --backfill sends every pending row immediately (initial catch-up).
   4. For each, skip if it already connected POS, else send via Brevo with the
      manager-login card and mark the row sent/failed/skipped.
@@ -34,9 +34,9 @@ from datetime import datetime, timedelta, timezone
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Resto onboarding follow-up (connect POS)")
-    p.add_argument("--delay-days", type=int, default=3,
+    p.add_argument("--delay-days", type=int, default=1,
                    help="Send the follow-up this many days after a venue is first "
-                        "seen live (default 3). Ignored when --backfill is set.")
+                        "seen live (default 1). Ignored when --backfill is set.")
     p.add_argument("--max", type=int, default=300,
                    help="Max follow-ups to send this run (safety cap).")
     p.add_argument("--backfill", action="store_true",
