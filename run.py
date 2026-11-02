@@ -560,6 +560,13 @@ def main() -> int:
                                            status="no_email", city=city_slug)
                     continue
 
+                # 4a. fuel station (website or email on a fuel brand's domain)
+                fuel, why = filters.is_fuel_brand(place.get("websiteUri"), email)
+                if fuel:
+                    stats["retail_skipped"] += 1
+                    print(f"  - {name}: fuel station, {why} (skip)")
+                    continue
+
                 # 4b. accommodation guard, now with the crawled email — the
                 #     strongest litoral tell (hotel@/reception@/…@x-hotel.ro).
                 acc, why = filters.is_accommodation(

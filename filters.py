@@ -82,6 +82,26 @@ def is_excluded(name: str | None, types) -> tuple[bool, str | None]:
     return False, None
 
 
+# Fuel brands: their station cafés ("Viva Cafe") carry no brand in the name, so
+# also match the website and the crawled email on the brand's own domains.
+_FUEL_DOMAIN = re.compile(
+    r"(^|\.)(rompetrol|omv|petrom|mol|molromania|lukoil|socar|socarpetroleum|"
+    r"gazprom|gazpromneft)\.[a-z.]+$",
+    re.IGNORECASE,
+)
+
+
+def is_fuel_brand(website: str | None, email: str | None) -> tuple[bool, str | None]:
+    """Does the website or the email belong to a fuel station brand?"""
+    host = re.sub(r"^[a-z]+://", "", (website or "").strip(), flags=re.I)
+    host = host.split("/")[0].split(":")[0]
+    dom = (email or "").rpartition("@")[2].strip()
+    for d in (host, dom):
+        if d and _FUEL_DOMAIN.search(d):
+            return True, f"fuel brand domain {d!r}"
+    return False, None
+
+
 def candidate_name(candidate: dict) -> str | None:
     """displayName.text from a Places search candidate or details dict."""
     return (candidate.get("displayName") or {}).get("text")
