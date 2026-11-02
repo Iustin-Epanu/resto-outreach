@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Exclusion filter: keep supermarkets, hypermarkets and shopping malls out of the
+Exclusion filter: keep supermarkets, hypermarkets, shopping malls and fuel stations out of the
 outreach pipeline. Resto sells to sit-down/quick-service F&B venues — a Kaufland
 or a mall building is never a customer, and emailing one burns a send + pollutes
 the feed.
@@ -44,6 +44,7 @@ EXCLUDED_TYPES = {
     "electronics_store",
     "convenience_store",
     "market",  # generic market / farmers market — not a restaurant
+    "gas_station",  # fuel stations, incl. their in-store cafés
 }
 
 # High-precision name backstop. Brand chains + generic big-box words only.
@@ -56,7 +57,8 @@ _NAME_BLOCK = re.compile(
     r"mega\s?image|penny\s?market|profi\s+(super|market)|"
     r"dedeman|hornbach|leroy\s?merlin|brico\s?(depot|dépôt)|ikea|"
     r"hypermarket|hipermarket|supermarket|supermarché|"
-    r"cash\s*(&|and)\s*carry"
+    r"cash\s*(&|and)\s*carry|"
+    r"rompetrol|omv|petrom|mol|lukoil|socar|gazprom"
     r")\b",
     re.IGNORECASE,
 )
